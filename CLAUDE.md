@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-For Algorand-specific patterns (algokit-utils, x402 protocol, AVM signing), load the relevant skill from `skills/` — particularly `algokit-utils-ts` and `algorand-x402-typescript`.
+For Algorand-specific patterns (algokit-utils, x402 protocol, wallet signing), load the relevant skill from `skills/` — particularly `algokit-utils-ts`, `algorand-x402-typescript`, and `algorand-frontend`.
 
 ## Commands
 
