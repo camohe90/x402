@@ -285,6 +285,7 @@ export default function App() {
   const [address, setAddress] = useState<string | null>(null);
   const [balance, setBalance] = useState<WalletBalance | null>(null);
   const [optingIn, setOptingIn] = useState(false);
+  const [heroCopied, setHeroCopied] = useState(false);
 
   useEffect(() => {
     if (isConnected) {
@@ -317,8 +318,9 @@ export default function App() {
 
   const walletHint = balance === null ? undefined
     : !balance.accountExists ? 'Wallet not funded — get testnet ALGO from bank.testnet.algorand.network'
-    : !balance.usdcOptedIn ? 'Opt in to USDC (ASA 10458941) then fund with testnet USDC'
-    : balance.usdc < 0.001 ? 'Insufficient USDC — need at least 0.001 USDC'
+    : !balance.usdcOptedIn && balance.algo < 0.2 ? 'Need at least 0.2 ALGO to auto opt-in to USDC'
+    : !balance.usdcOptedIn ? (optingIn ? 'Opting in to USDC…' : 'Opt in to USDC (ASA 10458941) then fund with testnet USDC')
+    : balance.usdc < 0.001 ? 'Insufficient USDC balance'
     : undefined;
 
   const handleBuy = useCallback(async () => {
@@ -370,13 +372,55 @@ export default function App() {
           </div>
         ) : (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
-            <button onClick={handleBuy} disabled={loading || (balance !== null && balance.usdc < 0.001)}
-              style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: (loading || (balance !== null && balance.usdc < 0.001)) ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: (loading || (balance !== null && balance.usdc < 0.001)) ? 'var(--text-muted)' : '#001a15', cursor: (loading || (balance !== null && balance.usdc < 0.001)) ? 'not-allowed' : 'pointer', boxShadow: (loading || (balance !== null && balance.usdc < 0.001)) ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em' }}>
-              {loading ? '⏳  Purchasing…' : '⚡  Buy Weather Data — $0.001'}
+            <button onClick={handleBuy} disabled={loading || optingIn || (balance !== null && balance.usdc < 0.001)}
+              style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: (loading || optingIn || (balance !== null && balance.usdc < 0.001)) ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: (loading || optingIn || (balance !== null && balance.usdc < 0.001)) ? 'var(--text-muted)' : '#001a15', cursor: (loading || optingIn || (balance !== null && balance.usdc < 0.001)) ? 'not-allowed' : 'pointer', boxShadow: (loading || optingIn || (balance !== null && balance.usdc < 0.001)) ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em' }}>
+              {loading ? '⏳  Purchasing…' : optingIn ? '⏳  Opting in to USDC…' : '⚡  Buy Weather Data — $0.001'}
             </button>
 
             {walletHint && (
-              <p style={{ fontSize:13, color:'var(--warning)', margin:0 }}>Insufficient balance</p>
+              balance?.usdcOptedIn && balance.usdc < 0.001 ? (
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+                  <p style={{ fontSize:13, color:'var(--warning)', margin:0 }}>Insufficient USDC balance</p>
+                  {address && (
+                    <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 10px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:8 }}>
+                      <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text-muted)' }}>
+                        {address.slice(0,12)}…{address.slice(-8)}
+                      </span>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(address); setHeroCopied(true); setTimeout(() => setHeroCopied(false), 1500); }}
+                        style={{ fontSize:11, padding:'2px 8px', borderRadius:4, border:'1px solid var(--border)', background:'transparent', color: heroCopied ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer' }}
+                      >
+                        {heroCopied ? '✓ Copied' : 'Copy'}
+                      </button>
+                      <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer"
+                        style={{ fontSize:11, color:'var(--primary)', textDecoration:'underline' }}>
+                        Get USDC ↗
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+                  <p style={{ fontSize:13, color:'var(--warning)', margin:0 }}>{walletHint}</p>
+                  {address && (balance === null || !balance.accountExists || balance.algo < 0.2) && (
+                    <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 10px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:8 }}>
+                      <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text-muted)' }}>
+                        {address.slice(0,12)}…{address.slice(-8)}
+                      </span>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(address); setHeroCopied(true); setTimeout(() => setHeroCopied(false), 1500); }}
+                        style={{ fontSize:11, padding:'2px 8px', borderRadius:4, border:'1px solid var(--border)', background:'transparent', color: heroCopied ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer' }}
+                      >
+                        {heroCopied ? '✓ Copied' : 'Copy'}
+                      </button>
+                      <a href="https://bank.testnet.algorand.network/" target="_blank" rel="noreferrer"
+                        style={{ fontSize:11, color:'var(--primary)', textDecoration:'underline' }}>
+                        Get ALGO ↗
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )
             )}
           </div>
         )}

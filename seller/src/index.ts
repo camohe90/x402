@@ -72,7 +72,17 @@ const app = new Hono();
 
 // Allow browser clients (UI on :5173) to call the seller directly
 app.use(cors({
-  origin: ['http://localhost:5173'],
+  origin: (origin) => {
+    const allowed = [
+      'http://localhost:5173',
+      'http://localhost:4173',
+      process.env.UI_ORIGIN,
+    ].filter(Boolean) as string[];
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
+      return origin ?? '*';
+    }
+    return null as unknown as string;
+  },
   exposeHeaders: ['payment-required', 'PAYMENT-RESPONSE', 'X-PAYMENT-RESPONSE'],
 }));
 

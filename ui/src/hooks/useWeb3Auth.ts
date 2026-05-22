@@ -5,6 +5,8 @@ import type { IProvider } from '@web3auth/no-modal';
 import nacl from 'tweetnacl';
 import algosdk from 'algosdk';
 import { AlgorandClient } from '@algorandfoundation/algokit-utils';
+import { generateAddressWithSigners } from '@algorandfoundation/algokit-utils/transact';
+import type { RawEd25519Signer } from '@algorandfoundation/algokit-utils/crypto';
 
 export interface AlgorandAccount {
   address: string;
@@ -23,19 +25,16 @@ export type Web3AuthStatus = 'idle' | 'initializing' | 'ready' | 'connecting' | 
 const USDC_ASSET_ID = 10458941;
 
 export async function optInToUSDC(address: string, privateKeyBase64: string): Promise<void> {
-  const algod = new algosdk.Algodv2('', 'https://testnet-api.algonode.cloud', '');
-  const params = await algod.getTransactionParams().do();
-  const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-    sender: address,
-    receiver: address,
-    amount: 0,
-    assetIndex: USDC_ASSET_ID,
-    suggestedParams: params,
-  });
-  const sk = new Uint8Array(Buffer.from(privateKeyBase64, 'base64'));
-  const signed = txn.signTxn(sk);
-  const { txid } = await algod.sendRawTransaction(signed).do();
-  await algosdk.waitForConfirmation(algod, txid, 6);
+  const sk = new Uint8Array(Buffer.from(privateKeyBase64, 'base64')); // 64-byte nacl secret key
+  const ed25519Pubkey = sk.subarray(32); // last 32 bytes = public key
+  const rawEd25519Signer: RawEd25519Signer = async (bytesToSign) =>
+    nacl.sign.detached(bytesToSign, sk);
+
+  const { signer } = generateAddressWithSigners({ ed25519Pubkey, rawEd25519Signer });
+
+  const algorand = AlgorandClient.testNet();
+  algorand.account.setSigner(address, signer);
+  await algorand.send.assetOptIn({ sender: address, assetId: BigInt(USDC_ASSET_ID) });
 }
 
 export async function fetchWalletBalance(address: string): Promise<WalletBalance> {
