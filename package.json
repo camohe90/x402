@@ -1,0 +1,20 @@
+{
+  "name": "x402-demo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "seller",
+    "buyer",
+    "ui"
+  ],
+  "scripts": {
+    "seller": "npm run dev --workspace=seller",
+    "buyer": "npm run dev --workspace=buyer",
+    "buyer:server": "npm run server --workspace=buyer",
+    "ui": "npm run dev --workspace=ui",
+    "install:all": "npm install"
+  },
+  "dependencies": {
+    "@algorandfoundation/algokit-utils": "^10.0.0-alpha.46"
+  }
+}

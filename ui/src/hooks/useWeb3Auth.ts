@@ -1,0 +1,170 @@
+import { useEffect, useRef, useState } from 'react';
+import { Web3Auth } from '@web3auth/modal';
+import { CHAIN_NAMESPACES, WEB3AUTH_NETWORK, CommonPrivateKeyProvider } from '@web3auth/no-modal';
+import type { IProvider } from '@web3auth/no-modal';
+import nacl from 'tweetnacl';
+import algosdk from 'algosdk';
+import { AlgorandClient } from '@algorandfoundation/algokit-utils';
+
+export interface AlgorandAccount {
+  address: string;
+  privateKeyBase64: string;
+}
+
+export interface WalletBalance {
+  algo: number;
+  usdc: number;
+  usdcOptedIn: boolean;
+  accountExists: boolean;
+}
+
+export type Web3AuthStatus = 'idle' | 'initializing' | 'ready' | 'connecting' | 'connected' | 'error';
+
+const USDC_ASSET_ID = 10458941;
+
+export async function optInToUSDC(address: string, privateKeyBase64: string): Promise<void> {
+  const algod = new algosdk.Algodv2('', 'https://testnet-api.algonode.cloud', '');
+  const params = await algod.getTransactionParams().do();
+  const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+    sender: address,
+    receiver: address,
+    amount: 0,
+    assetIndex: USDC_ASSET_ID,
+    suggestedParams: params,
+  });
+  const sk = new Uint8Array(Buffer.from(privateKeyBase64, 'base64'));
+  const signed = txn.signTxn(sk);
+  const { txid } = await algod.sendRawTransaction(signed).do();
+  await algosdk.waitForConfirmation(algod, txid, 6);
+}
+
+export async function fetchWalletBalance(address: string): Promise<WalletBalance> {
+  try {
+    const res = await fetch(`https://testnet-api.algonode.cloud/v2/accounts/${address}`);
+    if (res.status === 404) {
+      return { algo: 0, usdc: 0, usdcOptedIn: false, accountExists: false };
+    }
+    const data = await res.json() as { amount?: number; assets?: Array<{ 'asset-id': number; amount: number }> };
+    const usdcAsset = data.assets?.find(a => a['asset-id'] === USDC_ASSET_ID);
+    return {
+      algo: (data.amount ?? 0) / 1e6,
+      usdc: usdcAsset ? usdcAsset.amount / 1e6 : 0,
+      usdcOptedIn: !!usdcAsset,
+      accountExists: true,
+    };
+  } catch {
+    return { algo: 0, usdc: 0, usdcOptedIn: false, accountExists: false };
+  }
+}
+
+function buildWeb3Auth() {
+  const chainConfig = {
+    chainNamespace: CHAIN_NAMESPACES.OTHER,
+    chainId: 'algorand:testnet',
+    displayName: 'Algorand Testnet',
+    ticker: 'ALGO',
+    tickerName: 'Algorand',
+    rpcTarget: 'https://testnet-api.algonode.cloud',
+    logo: '',
+    blockExplorerUrl: 'https://lora.algokit.io/testnet',
+  };
+  const privateKeyProvider = new CommonPrivateKeyProvider({
+    config: { chain: chainConfig, chains: [chainConfig] },
+  });
+  // Pass initialState.currentChainId so initCachedConnectorAndChainId treats Algorand
+  // as the "cached" chain, bypassing the EIP155 chain from projectConfig which would
+  // otherwise become chains[0] and trigger the null wsEmbedInstance crash.
+  return new Web3Auth(
+    {
+      clientId: import.meta.env.VITE_WEB3AUTH_CLIENT_ID as string,
+      web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
+      privateKeyProvider,
+      chains: [chainConfig],
+    },
+    {
+      currentChainId: 'algorand:testnet',
+      cachedConnector: null,
+      connectedConnectorName: null,
+      idToken: null,
+    },
+  );
+}
+
+export function useWeb3Auth() {
+  const instanceRef = useRef<Web3Auth | null>(null);
+  const [status, setStatus] = useState<Web3AuthStatus>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [provider, setProvider] = useState<IProvider | null>(null);
+
+  useEffect(() => {
+    if (instanceRef.current) return;
+    const w3a = buildWeb3Auth();
+    instanceRef.current = w3a;
+    setStatus('initializing');
+    w3a.init()
+      .then(() => {
+        if (w3a.connected && w3a.provider) {
+          setProvider(w3a.provider);
+          setStatus('connected');
+        } else {
+          setStatus('ready');
+        }
+      })
+      .catch((e: Error) => {
+        setError(e.message ?? 'Init failed');
+        setStatus('error');
+      });
+  }, []);
+
+  const connect = async () => {
+    const w3a = instanceRef.current;
+    if (!w3a) return;
+    setStatus('connecting');
+    setError(null);
+    try {
+      const prov = await w3a.connect();
+      if (prov) {
+        setProvider(prov);
+        setStatus('connected');
+      } else {
+        setStatus('ready');
+      }
+    } catch (e) {
+      setError((e as Error).message ?? 'Connection failed');
+      setStatus('ready');
+    }
+  };
+
+  const disconnect = async () => {
+    const w3a = instanceRef.current;
+    if (!w3a) return;
+    await w3a.logout();
+    setProvider(null);
+    setStatus('ready');
+  };
+
+  const getAccount = async (): Promise<AlgorandAccount | null> => {
+    if (!provider) return null;
+    try {
+      const privateKeyHex = await provider.request({ method: 'private_key' }) as string;
+      const seed = new Uint8Array(Buffer.from(privateKeyHex, 'hex')).subarray(0, 32);
+      const { secretKey, publicKey } = nacl.sign.keyPair.fromSeed(seed);
+      return {
+        address: algosdk.encodeAddress(publicKey),
+        privateKeyBase64: Buffer.from(secretKey).toString('base64'),
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    status,
+    isConnected: status === 'connected',
+    provider,
+    error,
+    getAccount,
+    connect,
+    disconnect,
+  };
+}
