@@ -1,10 +1,22 @@
+// =============================================================================
+// BROWSER BUYER — x402 client hook for the React UI
+//
+// This hook is the browser-side equivalent of buyer/src/buyer.ts.
+// To adapt the UI to your own seller, change two things:
+//
+//   1. RESPONSE TYPES — replace WeatherData / ForecastData with your types
+//   2. ENDPOINTS      — update the Endpoint union and buy() call paths
+//
+// The payment flow inside buy() is boilerplate — don't change it.
+// =============================================================================
+
 import { useState, useCallback } from 'react';
 import { wrapFetchWithPayment, x402Client } from '@x402/fetch';
 import { ExactAvmScheme } from '@x402/avm/exact/client';
 import { toClientAvmSigner, ALGORAND_TESTNET_CAIP2 } from '@x402/avm';
 import type { AlgorandAccount } from './useWeb3Auth';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── CHANGE 1 — replace with your seller's response types ─────────────────────
 
 export interface WeatherData {
   city: string;
@@ -29,6 +41,7 @@ export interface ForecastData {
   timestamp: string;
 }
 
+// CHANGE 2 — update this union to match your seller's endpoints
 export type Endpoint = 'weather' | 'forecast';
 
 export interface Purchase {

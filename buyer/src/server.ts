@@ -1,3 +1,13 @@
+// =============================================================================
+// BUYER SERVER — SSE streaming server (local dev / server-to-server testing)
+//
+// Streams purchase events from buyer.ts to the browser via Server-Sent Events.
+// Only needed for local testing — the deployed UI calls the seller directly.
+//
+// To adapt: rename `buyWeather` import to your function in buyer.ts,
+// and update the /api/buy route to call it.
+// =============================================================================
+
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
