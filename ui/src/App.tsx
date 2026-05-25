@@ -730,14 +730,27 @@ const data = await response.json();
           {sellerUrl.replace(/https?:\/\//, '')}
         </div>
         {/* Endpoint rows */}
-        {[
+        {([
           { path:'/weather',  price: health?.prices.weather  ?? '$0.001', desc:'Current conditions for a random city',
-            schema:'city · temperature · condition · humidity' },
+            fields:[
+              { name:'city',        type:'string' },
+              { name:'temperature', type:'number' },
+              { name:'condition',   type:'string' },
+              { name:'humidity',    type:'number' },
+              { name:'paidVia',     type:'string' },
+              { name:'timestamp',   type:'string' },
+            ] },
           { path:'/forecast', price: health?.prices.forecast ?? '$0.005', desc:'7-day forecast for a random city',
-            schema:'city · days[date · tempMax · tempMin · condition]' },
-        ].map((ep, i, arr) => (
-          <div key={ep.path} style={{ marginBottom: i < arr.length - 1 ? 8 : 0 }}>
-            <div style={{ display:'grid', gridTemplateColumns:'auto 1fr auto', gap:12, alignItems:'center', padding:'10px 12px', borderRadius:10, background:'var(--bg)', border:'1px solid var(--border)' }}>
+            fields:[
+              { name:'city',      type:'string' },
+              { name:'days',      type:'{ date: string, tempMax: number, tempMin: number, condition: string }[]' },
+              { name:'paidVia',   type:'string' },
+              { name:'timestamp', type:'string' },
+            ] },
+        ] as const).map((ep, i, arr) => (
+          <div key={ep.path} style={{ background:'var(--bg)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', marginBottom: i < arr.length - 1 ? 8 : 0 }}>
+            {/* Endpoint header */}
+            <div style={{ display:'grid', gridTemplateColumns:'auto 1fr auto', gap:12, alignItems:'center', padding:'10px 12px' }}>
               <span style={{ fontFamily:'var(--mono)', fontSize:11, padding:'3px 7px', background:'var(--primary-dim)', color:'var(--primary)', borderRadius:5, fontWeight:700, letterSpacing:'0.04em' }}>GET</span>
               <div>
                 <span style={{ fontFamily:'var(--mono)', fontSize:13, fontWeight:600, color:'var(--primary)' }}>{ep.path}</span>
@@ -745,8 +758,18 @@ const data = await response.json();
               </div>
               <span style={{ fontFamily:'var(--mono)', fontSize:13, color:'var(--success)', fontWeight:700, whiteSpace:'nowrap' }}>{ep.price}</span>
             </div>
-            <div style={{ padding:'5px 14px', fontSize:11, fontFamily:'var(--mono)', color:'var(--text-muted)', letterSpacing:'0.02em' }}>
-              → {'{'} <span style={{ color:'var(--text-dim)' }}>{ep.schema}</span> {'}'}
+            {/* Response schema — inside the card so it's clearly associated */}
+            <div style={{ borderTop:'1px solid var(--border)', padding:'8px 12px', background:'var(--card)' }}>
+              <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>Response</div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:'4px 12px' }}>
+                {ep.fields.map(f => (
+                  <span key={f.name} style={{ fontFamily:'var(--mono)', fontSize:11, whiteSpace:'nowrap' }}>
+                    <span style={{ color:'var(--text-dim)' }}>{f.name}</span>
+                    <span style={{ color:'var(--border)', margin:'0 2px' }}>:</span>
+                    <span style={{ color:'var(--text-muted)' }}>{f.type}</span>
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         ))}
