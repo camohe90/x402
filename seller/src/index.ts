@@ -93,7 +93,8 @@ const baseFacilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
 
 // Wrap verify/settle with retry — network blips to the facilitator won't fail the payment
 const facilitatorClient = {
-  ...baseFacilitator,
+  url: baseFacilitator.url,
+  getSupported: () => baseFacilitator.getSupported(),
   verify: (...args: Parameters<typeof baseFacilitator.verify>) =>
     withRetry(() => baseFacilitator.verify(...args)),
   settle: (...args: Parameters<typeof baseFacilitator.settle>) =>
