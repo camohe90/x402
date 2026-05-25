@@ -109,22 +109,33 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
   const copyAddress = () => {
     if (!address) return;
     navigator.clipboard.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   };
   if (status === 'connected' && address) {
     return (
-      <div style={{ position:'relative' }}>
+      <div ref={containerRef} style={{ position:'relative' }}>
         <button onClick={() => setOpen(o => !o)} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 12px', background:'var(--success-dim)', border:'1px solid var(--success)44', borderRadius:20, cursor:'pointer', outline:'none' }}>
           <span style={{ width:8, height:8, borderRadius:'50%', background:'var(--success)', display:'inline-block', boxShadow:'0 0 6px var(--success)' }} />
           <span style={{ fontFamily:'var(--mono)', fontSize:12, color:'var(--success)' }}>{address.slice(0,6)}…{address.slice(-4)}</span>
           <span style={{ fontSize:10, color:'var(--success)', opacity:0.7, marginLeft:2 }}>{open ? '▲' : '▼'}</span>
         </button>
         {open && (
-          <>
-            <div onClick={() => setOpen(false)} style={{ position:'fixed', inset:0, zIndex:99 }} />
-            <div style={{ position:'absolute', right:0, top:'calc(100% + 8px)', zIndex:100, width:300, background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'0 8px 32px rgba(0,0,0,0.4)', overflow:'hidden', animation:'popIn 0.15s ease' }}>
+          <div style={{ position:'absolute', right:0, top:'calc(100% + 8px)', zIndex:100, width:300, background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'0 8px 32px rgba(0,0,0,0.4)', overflow:'hidden', animation:'popIn 0.15s ease' }}>
               <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
                 <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>Wallet Address</div>
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -152,7 +163,6 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
                 <button onClick={() => { setOpen(false); onDisconnect(); }} style={{ width:'100%', padding:'8px', fontSize:13, borderRadius:8, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor:'pointer' }}>Disconnect</button>
               </div>
             </div>
-          </>
         )}
       </div>
     );
