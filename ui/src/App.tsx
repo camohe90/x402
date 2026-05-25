@@ -157,7 +157,22 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
                     </div>
                   ))}
                 </div>
-                {walletHint && <div style={{ marginTop:10, padding:'8px 10px', background:'rgba(251,191,36,0.08)', border:'1px solid var(--warning)33', borderRadius:8, fontSize:11, color:'var(--warning)', lineHeight:1.5 }}>{walletHint}</div>}
+                {walletHint && (
+                  <div style={{ marginTop:10, padding:'8px 10px', background:'rgba(251,191,36,0.08)', border:'1px solid var(--warning)33', borderRadius:8, fontSize:11, color:'var(--warning)', lineHeight:1.8 }}>
+                    {walletHint}
+                    <div style={{ marginTop:4, display:'flex', gap:10 }}>
+                      {(!balance?.accountExists || balance.algo < 0.2) && (
+                        <a href="https://bank.testnet.algorand.network/" target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'underline' }}>Get ALGO ↗</a>
+                      )}
+                      {balance?.accountExists && !balance.usdcOptedIn && balance.algo >= 0.2 && (
+                        <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'underline' }}>Get USDC ↗</a>
+                      )}
+                      {balance?.usdcOptedIn && balance.usdc < 0.001 && (
+                        <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'underline' }}>Get USDC ↗</a>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div style={{ padding:'10px 16px' }}>
                 <button onClick={() => { setOpen(false); onDisconnect(); }} style={{ width:'100%', padding:'8px', fontSize:13, borderRadius:8, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor:'pointer' }}>Disconnect</button>
@@ -570,9 +585,6 @@ export default function App() {
     ? (health?.prices.forecast ?? '$0.005')
     : (health?.prices.weather  ?? '$0.001');
   const buyDisabled = loading || optingIn || (balance !== null && balance.usdc < 0.001);
-  const totalSpent  = purchases.length > 0
-    ? `$${purchases.reduce((s, p) => s + (p.endpoint === 'forecast' ? 0.005 : 0.001), 0).toFixed(3)} USDC`
-    : null;
 
   return (
     <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column' }}>
@@ -704,7 +716,7 @@ export default function App() {
               <span style={{ fontFamily:'var(--mono)', color:'var(--success)', fontSize:12 }}>completed in {fmtTime(elapsed)}</span>
             )}
           </div>
-          <div style={{ display:'flex', alignItems:'flex-start', overflowX:'auto', paddingBottom:4 }}>
+          <div className="flow-steps" style={{ display:'flex', alignItems:'flex-start', overflowX:'auto', paddingBottom:4 }}>
             {STEPS.map((step, i) => (
               <div key={step.id} style={{ display:'flex', alignItems:'flex-start', flex:1, minWidth:0 }}>
                 <FlowStep step={step} active={activeStep === step.id} done={doneSteps.has(step.id)} />
@@ -798,6 +810,8 @@ export default function App() {
           .purchase-grid span:nth-child(5) { display: none; }
           .purchase-header span:nth-child(4),
           .purchase-header span:nth-child(5) { display: none; }
+          .flow-steps { gap: 0; }
+          .flow-steps > div { min-width: 80px; }
         }
 
         @media (max-width: 420px) {

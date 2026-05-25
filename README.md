@@ -19,13 +19,15 @@ The point isn't the weather data — it's the pattern. Any API can become a pay-
 Browser (React + Web3Auth)
   └── pays seller directly via x402 for each request
 
-seller/  — Hono server, GET /weather protected by x402 paymentMiddleware
+seller/  — Hono server with two paid endpoints:
+             GET /weather  — current conditions, $0.001 USDC per request
+             GET /forecast — 7-day forecast,     $0.005 USDC per request
 ui/      — React + Vite SPA, deployed on Vercel
 
 buyer/   — local testing only (see below)
 ```
 
-The `seller` exposes `GET /weather` behind a $0.001 USDC paywall. Any client that sends a valid x402 payment proof gets the data. The `ui` demonstrates a browser-based buyer using Web3Auth (email login, no seed phrase).
+The `seller` exposes `GET /weather` and `GET /forecast` behind USDC paywalls. Any client that sends a valid x402 payment proof gets the data. The `ui` demonstrates a browser-based buyer using Web3Auth (email login, no seed phrase).
 
 ---
 
@@ -67,6 +69,8 @@ Edit `.env` (in the repo root):
 | `UI_ORIGIN` | ✅ seller | Deployed UI origin (for CORS, e.g. `https://your-app.vercel.app`) |
 | `BUYER_MNEMONIC` | ⚠️ optional | 25-word mnemonic — only needed if running the buyer server |
 | `FACILITATOR_URL` | — | Default: `https://facilitator.goplausible.xyz` |
+| `SELLER_WEATHER_PRICE` | — | Default: `0.001` (plain decimal USD, no `$`) |
+| `SELLER_FORECAST_PRICE` | — | Default: `0.005` (plain decimal USD, no `$`) |
 
 ### 3. Run locally
 

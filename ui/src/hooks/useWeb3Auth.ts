@@ -39,19 +39,17 @@ export async function optInToUSDC(address: string, privateKeyBase64: string): Pr
 
 export async function fetchWalletBalance(address: string): Promise<WalletBalance> {
   try {
-    const res = await fetch(`https://testnet-api.algonode.cloud/v2/accounts/${address}`);
-    if (res.status === 404) {
-      return { algo: 0, usdc: 0, usdcOptedIn: false, accountExists: false };
-    }
-    const data = await res.json() as { amount?: number; assets?: Array<{ 'asset-id': number; amount: number }> };
-    const usdcAsset = data.assets?.find(a => a['asset-id'] === USDC_ASSET_ID);
+    const algorand = AlgorandClient.testNet();
+    const info = await algorand.account.getInformation(address);
+    const usdcAsset = info.assets?.find(a => a.assetId === BigInt(USDC_ASSET_ID));
     return {
-      algo: (data.amount ?? 0) / 1e6,
-      usdc: usdcAsset ? usdcAsset.amount / 1e6 : 0,
+      algo: Number(info.balance.microAlgos) / 1e6,
+      usdc: usdcAsset ? Number(usdcAsset.amount) / 1e6 : 0,
       usdcOptedIn: !!usdcAsset,
       accountExists: true,
     };
   } catch {
+    // 404 = account not yet funded; network errors return safe zero state
     return { algo: 0, usdc: 0, usdcOptedIn: false, accountExists: false };
   }
 }

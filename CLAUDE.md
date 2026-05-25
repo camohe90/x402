@@ -45,19 +45,22 @@ Browser (ui/)
 buyer/src/server.ts   — Hono SSE server; streams BuyerEvents to the UI
 buyer/src/buyer.ts    — x402 client logic: hits seller, handles 402, signs, retries
 
-seller/src/index.ts   — Hono server protected by x402 paymentMiddleware
+seller/src/index.ts   — Hono server with two paid endpoints:
+                         GET /weather  — current conditions ($0.001 USDC, env: SELLER_WEATHER_PRICE)
+                         GET /forecast — 7-day forecast    ($0.005 USDC, env: SELLER_FORECAST_PRICE)
+                         Both use Open-Meteo (free, no API key) for real weather data
                          → returns HTTP 402 with payment requirements
                          → verifies payment via goplausible facilitator
-                         → delivers weather data on success
+                         → delivers data only after payment confirmed
 ```
 
 ### x402 Payment Flow
 
-1. Client sends `GET /weather` (no payment header)
-2. Seller returns HTTP 402 with `accepts[]` — scheme, network, `payTo`, price
-3. Client signs an Algorand USDC transaction and retries with proof in the `X-PAYMENT` header
-4. `HTTPFacilitatorClient` at `facilitator.goplausible.xyz` verifies on-chain settlement
-5. Seller delivers the response
+1. Client sends `GET /weather` or `GET /forecast` (no payment header)
+2. Seller returns HTTP 402 with `PAYMENT-REQUIRED` header (base64 JSON) containing `accepts[]` — scheme, network, `payTo`, price
+3. Client signs an Algorand USDC transaction via `toClientAvmSigner` from `@x402/avm` and retries with proof in `X-PAYMENT` header
+4. `HTTPFacilitatorClient` at `facilitator.goplausible.xyz` verifies and settles on-chain (wrapped with `withRetry` for resilience)
+5. Seller delivers the response only after confirmation
 
 ### UI-specific architecture
 
@@ -86,6 +89,8 @@ Root `.env` (seller + buyer):
 | `FACILITATOR_URL` | both | `https://facilitator.goplausible.xyz` | Settlement facilitator |
 | `SELLER_URL` | buyer | `http://localhost:4021` | Seller URL for buyer server |
 | `UI_ORIGIN` | seller | — | Deployed UI origin for CORS (e.g. `https://ui-vert-five.vercel.app`) |
+| `SELLER_WEATHER_PRICE` | seller | `0.001` | Price in USD for `/weather` (plain decimal, no `$`) |
+| `SELLER_FORECAST_PRICE` | seller | `0.005` | Price in USD for `/forecast` (plain decimal, no `$`) |
 
 UI env (set in Vercel dashboard or `ui/.env.local`):
 
@@ -113,7 +118,7 @@ cd ui && vercel --prod
 | `@x402/fetch` | buyer, ui | `wrapFetchWithPayment`, `x402Client` |
 | `@x402/avm` | buyer, ui | `toClientAvmSigner`, `ExactAvmScheme`, `ALGORAND_TESTNET_CAIP2` |
 | `@web3auth/modal` v10 | ui | Email-based wallet, `Web3Auth` class, `CHAIN_NAMESPACES.OTHER` |
-| `@algorandfoundation/algokit-utils` | ui | `AlgorandClient.testNet()`, `algorand.send.assetOptIn()` |
-| `algosdk` v3 | ui | `encodeAddress`, key derivation |
+| `@algorandfoundation/algokit-utils` | ui | `AlgorandClient.testNet()`, `algorand.account.getInformation()`, `algorand.send.assetOptIn()` — all on-chain reads and writes go through this |
+| `algosdk` v3 | ui, buyer | `encodeAddress`, `mnemonicToSecretKey` — key derivation only, not used for direct chain calls |
 | `tweetnacl` | ui | Ed25519 key derivation and signing |
 | `hono` | seller, buyer | HTTP server framework |
