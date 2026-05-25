@@ -12,12 +12,28 @@ A full-stack demo of the **x402 HTTP payment protocol** on Algorand Testnet. Thr
 Browser (React + Web3Auth)
   └── pays seller directly via x402 for each request
 
-buyer/   — Hono SSE server + x402 client (server-side buyer)
 seller/  — Hono server, GET /weather protected by x402 paymentMiddleware
 ui/      — React + Vite SPA, deployed on Vercel
+
+buyer/   — local testing only (see below)
 ```
 
 The `seller` exposes `GET /weather` behind a $0.001 USDC paywall. Any client that sends a valid x402 payment proof gets the data. The `ui` demonstrates a browser-based buyer using Web3Auth (email login, no seed phrase).
+
+### About the buyer server
+
+`buyer/` is a **server-side x402 client** — a Hono SSE server that purchases from the seller using a funded mnemonic and streams the events back to the browser. It is **only used for local development and testing**, not in production.
+
+When the UI is deployed to Vercel, the browser calls the seller directly using the Web3Auth-derived wallet. The buyer server is not needed and is not deployed.
+
+| Scenario | Needs buyer server? |
+|---|---|
+| Running locally (`npm run ui`) | Optional — UI calls seller directly anyway |
+| Deployed UI on Vercel | **No** — browser pays directly via Web3Auth wallet |
+| Server-to-server testing (no browser) | **Yes** — useful for scripted load tests or CI |
+| Building a backend agent that consumes x402 APIs | **Yes** — use `buyer/` as your starting point |
+
+To skip the buyer server entirely, just run `npm run seller` and `npm run ui`. The `BUYER_MNEMONIC` env variable is only required if you run `npm run buyer:server`.
 
 ---
 
@@ -39,21 +55,26 @@ cp .env.example .env
 
 Edit `.env`:
 
-| Variable | Description |
-|---|---|
-| `SELLER_ADDRESS` | Algorand address that receives payments |
-| `BUYER_MNEMONIC` | 25-word mnemonic for the buyer server account |
-| `VITE_WEB3AUTH_CLIENT_ID` | From [dashboard.web3auth.io](https://dashboard.web3auth.io) |
-| `VITE_SELLER_URL` | Public seller URL the browser calls |
-| `UI_ORIGIN` | Deployed UI origin (for CORS) |
-| `FACILITATOR_URL` | Default: `https://facilitator.goplausible.xyz` |
+| Variable | Required | Description |
+|---|---|---|
+| `SELLER_ADDRESS` | ✅ seller | Algorand address that receives payments |
+| `VITE_WEB3AUTH_CLIENT_ID` | ✅ ui | From [dashboard.web3auth.io](https://dashboard.web3auth.io) |
+| `VITE_SELLER_URL` | ✅ ui | Public seller URL the browser calls |
+| `UI_ORIGIN` | ✅ seller | Deployed UI origin (for CORS, e.g. `https://your-app.vercel.app`) |
+| `BUYER_MNEMONIC` | ⚠️ optional | 25-word mnemonic — only needed if running the buyer server |
+| `FACILITATOR_URL` | — | Default: `https://facilitator.goplausible.xyz` |
 
 ### 3. Run locally
 
 ```bash
-npm run seller          # terminal 1 — port 4021
-npm run buyer:server    # terminal 2 — port 4022
-npm run ui              # terminal 3 — port 5173
+npm run seller    # terminal 1 — port 4021 (required)
+npm run ui        # terminal 2 — port 5173 (required)
+```
+
+The buyer server is optional for local dev — skip it unless you need server-to-server testing:
+
+```bash
+npm run buyer:server    # optional — port 4022, requires BUYER_MNEMONIC
 ```
 
 > The browser-based UI calls the seller directly, so it needs a public URL (not localhost). Use ngrok for local dev — see [Connecting a local seller to the deployed UI](#connecting-a-local-seller-to-the-deployed-ui).
