@@ -4,7 +4,7 @@
 
 This is an **x402 demo** — three services demonstrating HTTP 402 micropayments on Algorand Testnet using USDC:
 
-- **`seller/`** — Hono server, exposes `GET /weather` behind x402 `paymentMiddleware`
+- **`seller/`** — Hono server, exposes `GET /weather` and `GET /forecast` behind x402 `paymentMiddleware`
 - **`buyer/`** — Hono SSE server + x402 client, streams purchase events
 - **`ui/`** — React + Vite SPA, deployed on Vercel, uses Web3Auth for email-based wallets
 

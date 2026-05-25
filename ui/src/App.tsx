@@ -22,6 +22,29 @@ type StepColor = typeof STEPS[number]['color'];
 const EXPLORER_BASE = 'https://lora.algokit.io/testnet/transaction';
 const GITHUB_URL    = 'https://github.com/camohe90/x402';
 
+// ── Generic result helpers ─────────────────────────────────────────────────────
+
+function formatKey(k: string) {
+  return k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+}
+function formatVal(v: unknown): string {
+  if (typeof v === 'number') return String(v);
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  return String(v);
+}
+// Returns the first meaningful string/number value from a purchase (for the table column)
+function firstResult(data: Record<string, unknown> | undefined): string {
+  if (!data) return '—';
+  const skip = new Set(['paidVia', 'timestamp']);
+  for (const [k, v] of Object.entries(data)) {
+    if (skip.has(k)) continue;
+    if (Array.isArray(v)) continue;
+    if (typeof v === 'object') continue;
+    if (v !== undefined && v !== null && String(v).trim()) return String(v);
+  }
+  return '—';
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function stepColor(c: StepColor) {
@@ -67,14 +90,6 @@ function endpointIcon(ep: Endpoint) {
 function fmtTime(ms: number) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
-const CONDITION_ICON: Record<string, string> = {
-  'Clear Sky':'☀️', 'Mainly Clear':'🌤️', 'Partly Cloudy':'⛅', 'Overcast':'☁️',
-  'Foggy':'🌫️', 'Drizzle':'🌦️', 'Heavy Drizzle':'🌧️',
-  'Light Rain':'🌦️', 'Rain':'🌧️', 'Heavy Rain':'⛈️',
-  'Light Snow':'🌨️', 'Snow':'❄️', 'Heavy Snow':'❄️',
-  'Showers':'🌦️', 'Heavy Showers':'⛈️', 'Thunderstorm':'⛈️', 'Windy':'💨',
-};
-function condIcon(c: string) { return CONDITION_ICON[c] ?? '🌤️'; }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -231,62 +246,80 @@ function Connector({ active, done }: { active: boolean; done: boolean }) {
   );
 }
 
-function WeatherCard({ data, celebrate, txid }: { data: WeatherData; celebrate: boolean; txid?: string }) {
-  return (
-    <div style={{ background:'var(--card)', border:'1px solid var(--success)', borderRadius:16, padding:24, boxShadow: celebrate ? '0 0 40px var(--success)66' : '0 0 24px var(--success-dim)', animation: celebrate ? 'celebrate 0.5s ease' : 'fadeIn 0.5s ease', transition:'box-shadow 0.6s ease' }}>
-      {celebrate && <div style={{ textAlign:'center', fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--success)', marginBottom:10, animation:'fadeIn 0.3s ease' }}>✓ Payment successful</div>}
-      <div style={{ fontSize:48, marginBottom:8, textAlign:'center' }}>{condIcon(data.condition)}</div>
-      <div style={{ textAlign:'center', marginBottom:16 }}>
-        <div style={{ fontSize:22, fontWeight:700 }}>{data.city}</div>
-        <div style={{ fontSize:36, fontWeight:300, color:'var(--primary)', lineHeight:1.1 }}>{data.temperature}°F</div>
-        <div style={{ color:'var(--text-dim)', marginTop:4 }}>{data.condition}</div>
-      </div>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:16 }}>
-        {[['Humidity', `${data.humidity}%`], ['Network', 'Testnet']].map(([l,v]) => (
-          <div key={l} style={{ background:'var(--bg)', borderRadius:8, padding:'8px 12px', textAlign:'center' }}>
-            <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:2 }}>{l}</div>
-            <div style={{ fontSize:14, fontWeight:600 }}>{v}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:8, padding:'8px 12px', fontSize:11, fontFamily:'var(--mono)', color:'var(--success)', textAlign:'center' }}>{data.paidVia}</div>
-      <div style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', marginTop:8 }}>{new Date(data.timestamp).toLocaleTimeString()}</div>
-      {txid && (
-        <a href={`${EXPLORER_BASE}/${txid}`} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, marginTop:12, padding:'8px', background:'var(--primary-dim)', border:'1px solid var(--primary)33', borderRadius:8, color:'var(--primary)', textDecoration:'none', fontSize:12, fontWeight:600 }}>
-          View on Lora ↗
-        </a>
-      )}
-    </div>
-  );
-}
+// CHANGE — replace this card with your own result component, or just let it
+// auto-render your seller's JSON response as-is. It handles scalars, arrays of
+// objects, paidVia / timestamp / txid automatically.
+function ResultCard({ endpoint, data, celebrate, txid }: {
+  endpoint: string;
+  data: Record<string, unknown>;
+  celebrate: boolean;
+  txid?: string;
+}) {
+  const { paidVia, timestamp, ...rest } = data;
+  const scalars = Object.entries(rest).filter(([, v]) => !Array.isArray(v) && typeof v !== 'object' && v !== null) as [string, string | number | boolean][];
+  const arrays  = Object.entries(rest).filter(([, v]) => Array.isArray(v)) as [string, Record<string, unknown>[]][];
 
-function ForecastCard({ data, celebrate, txid }: { data: ForecastData; celebrate: boolean; txid?: string }) {
   return (
-    <div style={{ background:'var(--card)', border:'1px solid var(--success)', borderRadius:16, padding:24, boxShadow: celebrate ? '0 0 40px var(--success)66' : '0 0 24px var(--success-dim)', animation: celebrate ? 'celebrate 0.5s ease' : 'fadeIn 0.5s ease', transition:'box-shadow 0.6s ease' }}>
-      {celebrate && <div style={{ textAlign:'center', fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--success)', marginBottom:10, animation:'fadeIn 0.3s ease' }}>✓ Payment successful</div>}
-      <div style={{ fontWeight:700, fontSize:18, marginBottom:4, textAlign:'center' }}>{data.city}</div>
-      <div style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', marginBottom:16 }}>7-day forecast</div>
-      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-        {data.days.map((day, i) => (
-          <div key={day.date} style={{ display:'grid', gridTemplateColumns:'80px 28px 1fr auto', gap:8, alignItems:'center', padding:'6px 8px', borderRadius:8, background: i === 0 ? 'var(--primary-dim)' : 'var(--bg)' }}>
-            <span style={{ fontSize:12, color: i === 0 ? 'var(--primary)' : 'var(--text-muted)', fontWeight: i === 0 ? 600 : 400 }}>
-              {i === 0 ? 'Today' : new Date(day.date + 'T12:00:00').toLocaleDateString('en', { weekday:'short', month:'short', day:'numeric' })}
-            </span>
-            <span style={{ fontSize:16 }}>{condIcon(day.condition)}</span>
-            <span style={{ fontSize:11, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{day.condition}</span>
-            <span style={{ fontFamily:'var(--mono)', fontSize:12, fontWeight:600, whiteSpace:'nowrap' }}>
-              <span style={{ color:'var(--primary)' }}>{day.tempMax}°</span>
-              <span style={{ color:'var(--text-muted)', fontWeight:400 }}> / {day.tempMin}°</span>
-            </span>
-          </div>
-        ))}
+    <div style={{ background:'var(--card)', border:'1px solid var(--success)', borderRadius:16, padding:24, boxShadow: celebrate ? '0 0 40px var(--success)66' : '0 0 24px var(--success-dim)', animation: celebrate ? 'celebrate 0.5s ease' : 'fadeIn 0.5s ease', transition:'box-shadow 0.6s ease', minWidth:0 }}>
+      {celebrate && (
+        <div style={{ textAlign:'center', fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--success)', marginBottom:12, animation:'fadeIn 0.3s ease' }}>
+          ✓ Payment successful
+        </div>
+      )}
+
+      {/* Endpoint label */}
+      <div style={{ textAlign:'center', fontSize:13, fontWeight:600, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:16 }}>
+        {endpoint}
       </div>
-      <div style={{ marginTop:12, background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:8, padding:'8px 12px', fontSize:11, fontFamily:'var(--mono)', color:'var(--success)', textAlign:'center' }}>{data.paidVia}</div>
-      {txid && (
-        <a href={`${EXPLORER_BASE}/${txid}`} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, marginTop:12, padding:'8px', background:'var(--primary-dim)', border:'1px solid var(--primary)33', borderRadius:8, color:'var(--primary)', textDecoration:'none', fontSize:12, fontWeight:600 }}>
+
+      {/* Scalar fields — auto-rendered from response */}
+      {scalars.length > 0 ? (
+        <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:arrays.length ? 16 : 12 }}>
+          {scalars.map(([k, v]) => (
+            <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 12px', background:'var(--bg)', borderRadius:8 }}>
+              <span style={{ fontSize:12, color:'var(--text-muted)' }}>{formatKey(k)}</span>
+              <span style={{ fontSize:13, fontWeight:600, fontFamily:'var(--mono)', color:'var(--text)', maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{formatVal(v)}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Array fields — e.g. forecast days */}
+      {arrays.map(([k, arr]) => (
+        <div key={k} style={{ marginBottom:12 }}>
+          <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>{formatKey(k)}</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:4, maxHeight:220, overflowY:'auto' }}>
+            {arr.map((item, i) => {
+              const vals = Object.entries(item)
+                .filter(([, v]) => typeof v !== 'object' && v !== null)
+                .map(([, v]) => formatVal(v));
+              return (
+                <div key={i} style={{ display:'flex', gap:8, padding:'5px 10px', fontSize:12, color:'var(--text-dim)', background: i === 0 ? 'var(--primary-dim)' : 'var(--bg)', borderRadius:6, flexWrap:'wrap' }}>
+                  {vals.map((v, j) => <span key={j} style={{ color: i === 0 && j === 0 ? 'var(--primary)' : 'var(--text-dim)' }}>{v}</span>)}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      {/* paidVia badge */}
+      {paidVia != null ? (
+        <div style={{ background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:8, padding:'7px 12px', fontSize:11, fontFamily:'var(--mono)', color:'var(--success)', textAlign:'center', marginTop:4 }}>
+          {String(paidVia)}
+        </div>
+      ) : null}
+      {timestamp != null ? (
+        <div style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', marginTop:6 }}>
+          {new Date(String(timestamp)).toLocaleTimeString()}
+        </div>
+      ) : null}
+      {txid ? (
+        <a href={`${EXPLORER_BASE}/${txid}`} target="_blank" rel="noreferrer"
+          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, marginTop:12, padding:'8px', background:'var(--primary-dim)', border:'1px solid var(--primary)33', borderRadius:8, color:'var(--primary)', textDecoration:'none', fontSize:12, fontWeight:600 }}>
           View on Lora ↗
         </a>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -467,7 +500,7 @@ function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
             <span style={{ color:'var(--text-muted)', fontFamily:'var(--mono)', fontSize:11 }}>{new Date(p.purchasedAt).toLocaleTimeString()}</span>
             <span style={{ fontWeight:500 }}>/{p.endpoint} <span style={{ color: p.endpoint === 'forecast' ? 'var(--secondary)' : 'var(--primary)', fontSize:11 }}>${endpointPrice[p.endpoint].toFixed(3)}</span></span>
             <span style={{ color:'var(--text-dim)', fontSize:12 }}>
-              {p.weather?.city ?? p.forecast?.city ?? '—'}
+              {firstResult((p.weather ?? p.forecast) as Record<string, unknown> | undefined)}
             </span>
             <span style={{ fontFamily:'var(--mono)', fontSize:11, color: p.txid ? 'var(--text-dim)' : 'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:16 }}>{p.txid ?? '—'}</span>
             <span style={{ textAlign:'right' }}>
@@ -507,6 +540,8 @@ function CodeBlock({ code }: { code: string }) {
 }
 
 function BuildOnThis({ health }: { health: SellerHealth | null }) {
+  const [activeTab, setActiveTab] = useState<'seller' | 'client'>('seller');
+
   const sellerCode = `
 // 1. Declare price + who gets paid (your Algorand address)
 const routes = {
@@ -584,28 +619,26 @@ const data = await response.json();
             <span style={{ fontFamily:'var(--mono)', fontSize:12, color:'var(--success)', fontWeight:700, whiteSpace:'nowrap' }}>{ep.price}</span>
           </div>
         ))}
-        <div style={{ marginTop:4, padding:'10px 14px', background:'var(--bg)', borderRadius:8, fontSize:12, fontFamily:'var(--mono)', color:'var(--text-muted)', lineHeight:1.6 }}>
-          /weather  → {'{ city, temperature, condition, humidity, paidVia, timestamp }'}<br/>
-          /forecast → {'{ city, days: [{ date, tempMax, tempMin, condition }], paidVia, timestamp }'}
-        </div>
       </div>
 
-      {/* Code snippets */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }} className="build-grid">
-        <div>
-          <div style={{ fontSize:12, fontWeight:600, color:'var(--text-muted)', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ padding:'2px 8px', background:'var(--secondary-dim)', color:'var(--secondary)', borderRadius:6, fontSize:11 }}>Seller</span>
-            seller/src/index.ts
-          </div>
-          <CodeBlock code={sellerCode} />
+      {/* Tabbed code snippet */}
+      <div style={{ marginTop:8 }}>
+        <div style={{ display:'flex', gap:2, marginBottom:0, background:'var(--card)', border:'1px solid var(--border)', borderBottom:'none', borderRadius:'12px 12px 0 0', padding:'6px 6px 0', width:'fit-content' }}>
+          {([
+            { id:'seller', label:'Seller', file:'seller/src/index.ts', color:'var(--secondary)', dim:'var(--secondary-dim)' },
+            { id:'client', label:'Client', file:'buyer/src/buyer.ts',  color:'var(--primary)',   dim:'var(--primary-dim)'   },
+          ] as const).map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              style={{ padding:'7px 16px', fontSize:12, fontWeight:600, borderRadius:'8px 8px 0 0', border:'none', cursor:'pointer', transition:'all 0.15s',
+                background: activeTab === tab.id ? '#0d1117' : 'transparent',
+                color: activeTab === tab.id ? tab.color : 'var(--text-muted)',
+              }}>
+              {tab.label}
+              <span style={{ marginLeft:8, fontSize:10, opacity:0.6, fontWeight:400 }}>{tab.file}</span>
+            </button>
+          ))}
         </div>
-        <div>
-          <div style={{ fontSize:12, fontWeight:600, color:'var(--text-muted)', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ padding:'2px 8px', background:'var(--primary-dim)', color:'var(--primary)', borderRadius:6, fontSize:11 }}>Client</span>
-            buyer/src/buyer.ts
-          </div>
-          <CodeBlock code={clientCode} />
-        </div>
+        <CodeBlock code={activeTab === 'seller' ? sellerCode : clientCode} />
       </div>
 
       {/* Ideas */}
@@ -788,11 +821,11 @@ export default function App() {
           <FeaturePill icon="🔗" text="Algorand USDC" />
         </div>
         <h1 style={{ fontSize:'clamp(28px,6vw,64px)', fontWeight:700, lineHeight:1.1, letterSpacing:'-0.03em', marginBottom:20 }}>
-          Pay-per-Request APIs{' '}
-          <span style={{ background:'linear-gradient(90deg,var(--primary),var(--secondary))', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>on Algorand</span>
+          Monetize Any API{' '}
+          <span style={{ background:'linear-gradient(90deg,var(--primary),var(--secondary))', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>in Minutes</span>
         </h1>
         <p style={{ fontSize:'clamp(15px,2.5vw,18px)', color:'var(--text-dim)', lineHeight:1.7, maxWidth:540, margin:'0 auto 36px' }}>
-          The x402 protocol lets APIs charge per-request using HTTP 402. No subscriptions, no accounts — just connect your wallet and pay in USDC.
+          x402 turns any API into a pay-per-request service using HTTP 402. No subscriptions, no API keys — buyers connect their wallet and pay in USDC on Algorand.
         </p>
 
         {!isConnected ? (
@@ -888,9 +921,8 @@ export default function App() {
       <section className="content-section" style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px', boxSizing:'border-box' }}>
         <div className={hasResult ? 'demo-grid-split' : 'demo-grid-full'} style={{ gap:16, minHeight:240 }}>
           <EventLog events={events} elapsed={elapsed} />
-          {/* CHANGE — replace WeatherCard / ForecastCard with your own result component */}
-          {weather  && <WeatherCard  data={weather}  celebrate={celebrate} txid={lastTxid} />}
-          {forecast && <ForecastCard data={forecast} celebrate={celebrate} txid={lastTxid} />}
+          {weather  && <ResultCard endpoint="weather"  data={weather  as unknown as Record<string, unknown>} celebrate={celebrate} txid={lastTxid} />}
+          {forecast && <ResultCard endpoint="forecast" data={forecast as unknown as Record<string, unknown>} celebrate={celebrate} txid={lastTxid} />}
         </div>
       </section>
 
