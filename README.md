@@ -1,6 +1,10 @@
 # x402 × Algorand — Hackathon Template
 
-A full-stack demo of the **x402 HTTP payment protocol** on Algorand Testnet. Three services work together to show pay-per-request APIs using USDC — no API keys, no subscriptions.
+This demo shows how a **buyer** and a **seller** can transact directly over HTTP using the x402 payment protocol — no payment processor, no API keys, no subscription required. The idea is simple: the seller has something valuable, the buyer pays exactly what it costs, and the exchange happens in a single request cycle.
+
+In this example, the **seller** is a weather API. It charges $0.001 USDC per request and only returns data after a valid on-chain payment has been confirmed. The **buyer** is a React app — the user connects with their email (no seed phrase), and the wallet signs the payment automatically in the background. From the user's perspective it feels like a normal API call; under the hood, an Algorand USDC transaction was signed, submitted, and settled in real time.
+
+The point isn't the weather data — it's the pattern. Any API can become a pay-per-use service by adding a few lines of middleware on the seller side, and any client can pay for it with a few lines on the buyer side. This template is meant as a starting point for hackathon participants to replace the weather endpoint with whatever they want to sell.
 
 **Live demo:** [ui-vert-five.vercel.app](https://ui-vert-five.vercel.app)
 
