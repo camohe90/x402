@@ -287,9 +287,18 @@ function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
     <section style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:20, flexWrap:'wrap', gap:8 }}>
         <div style={{ fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--text-muted)' }}>Purchase History</div>
-        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-          <span style={{ fontSize:12, color:'var(--text-muted)' }}>{purchases.length} request{purchases.length !== 1 ? 's' : ''} ·</span>
-          <span style={{ fontFamily:'var(--mono)', fontSize:13, fontWeight:700, color:'var(--success)' }}>${totalSpent.toFixed(3)} USDC spent</span>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ padding:'4px 10px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:8, fontSize:12, color:'var(--text-dim)', fontWeight:600 }}>
+            ⚡ {purchases.length} API call{purchases.length !== 1 ? 's' : ''}
+          </span>
+          <span style={{ padding:'4px 10px', background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:8, fontFamily:'var(--mono)', fontSize:12, fontWeight:700, color:'var(--success)' }}>
+            ${totalSpent.toFixed(3)} USDC
+          </span>
+          {purchases.length > 1 && (
+            <span style={{ fontSize:11, color:'var(--text-muted)' }}>
+              avg ${(totalSpent / purchases.length).toFixed(3)}/call
+            </span>
+          )}
         </div>
       </div>
       <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden' }}>
