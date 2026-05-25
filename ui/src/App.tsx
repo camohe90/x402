@@ -372,13 +372,13 @@ function SpendingChart({ purchases }: { purchases: Purchase[] }) {
           {weatherCount > 0 && (
             <div style={{ display:'flex', alignItems:'center', gap:7 }}>
               <span style={{ width:8, height:8, borderRadius:2, background:'var(--primary)', display:'inline-block', flexShrink:0 }} />
-              <span style={{ fontSize:12, color:'var(--text-muted)' }}>Weather — {weatherCount}× · ${weatherSpend.toFixed(3)}</span>
+              <span style={{ fontSize:12, color:'var(--text-muted)' }}>Weather — {weatherCount} call{weatherCount !== 1 ? 's' : ''} · ${weatherSpend.toFixed(3)}</span>
             </div>
           )}
           {forecastCount > 0 && (
             <div style={{ display:'flex', alignItems:'center', gap:7 }}>
               <span style={{ width:8, height:8, borderRadius:2, background:'var(--secondary)', display:'inline-block', flexShrink:0 }} />
-              <span style={{ fontSize:12, color:'var(--text-muted)' }}>Forecast — {forecastCount}× · ${forecastSpend.toFixed(3)}</span>
+              <span style={{ fontSize:12, color:'var(--text-muted)' }}>Forecast — {forecastCount} call{forecastCount !== 1 ? 's' : ''} · ${forecastSpend.toFixed(3)}</span>
             </div>
           )}
         </div>
