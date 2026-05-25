@@ -183,9 +183,12 @@ export function useWeb3Auth() {
   const disconnect = async () => {
     const w3a = instanceRef.current;
     if (!w3a) return;
-    await w3a.logout();
+    await w3a.logout().catch(() => {});
     setProvider(null);
-    setStatus('ready');
+    // After logout the instance is torn down — rebuild so connect() works without a page refresh
+    const fresh = buildWeb3Auth(false);
+    instanceRef.current = fresh;
+    fresh.init().catch(() => {}).finally(() => setStatus('ready'));
   };
 
   const getAccount = async (): Promise<AlgorandAccount | null> => {
