@@ -8,6 +8,9 @@ The point isn't the weather data — it's the pattern. Any API can become a pay-
 
 **Live demo:** [ui-vert-five.vercel.app](https://ui-vert-five.vercel.app)
 
+<!-- Add a screenshot here: drag an image into this file on GitHub, or run the app and paste a screenshot -->
+<!-- ![x402 demo screenshot](./docs/screenshot.png) -->
+
 ---
 
 ## What this is
@@ -24,20 +27,17 @@ buyer/   — local testing only (see below)
 
 The `seller` exposes `GET /weather` behind a $0.001 USDC paywall. Any client that sends a valid x402 payment proof gets the data. The `ui` demonstrates a browser-based buyer using Web3Auth (email login, no seed phrase).
 
-### About the buyer server
+---
 
-`buyer/` is a **server-side x402 client** — a Hono SSE server that purchases from the seller using a funded mnemonic and streams the events back to the browser. It is **only used for local development and testing**, not in production.
+## Prerequisites
 
-When the UI is deployed to Vercel, the browser calls the seller directly using the Web3Auth-derived wallet. The buyer server is not needed and is not deployed.
+Before you start, make sure you have:
 
-| Scenario | Needs buyer server? |
-|---|---|
-| Running locally (`npm run ui`) | Optional — UI calls seller directly anyway |
-| Deployed UI on Vercel | **No** — browser pays directly via Web3Auth wallet |
-| Server-to-server testing (no browser) | **Yes** — useful for scripted load tests or CI |
-| Building a backend agent that consumes x402 APIs | **Yes** — use `buyer/` as your starting point |
-
-To skip the buyer server entirely, just run `npm run seller` and `npm run ui`. The `BUYER_MNEMONIC` env variable is only required if you run `npm run buyer:server`.
+- **Node.js 18+** and **npm 9+**
+- **An Algorand testnet wallet address** — this becomes `SELLER_ADDRESS`, the address that receives payments. Create one with [Lora](https://lora.algokit.io/testnet) or [Defly](https://defly.app)
+- **Testnet ALGO** in that wallet (at least 0.5 ALGO for fees) — [bank.testnet.algorand.network](https://bank.testnet.algorand.network)
+- **A Web3Auth account and Client ID** — sign up at [dashboard.web3auth.io](https://dashboard.web3auth.io), create a project on **Sapphire Devnet**, and copy the Client ID
+- **Vercel CLI** (for deploying the UI) — `npm i -g vercel`
 
 ---
 
@@ -57,7 +57,7 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` (in the repo root):
 
 | Variable | Required | Description |
 |---|---|---|
@@ -141,21 +141,24 @@ const data = await response.json();
 
 ## Payment flow
 
-```
-Client          Resource Server         Facilitator        Algorand
-  |                    |                     |                 |
-  | GET /endpoint      |                     |                 |
-  |—————————————————>  |                     |                 |
-  | 402 + requirements |                     |                 |
-  | <—————————————————  |                     |                 |
-  | Sign USDC tx       |                     |                 |
-  | GET + X-PAYMENT ——>|  verify(payload) ——>|  simulate ————> |
-  |                    |                     | <———————————————  |
-  |                    | <——————————————————  | {isValid: true} |
-  |                    |  settle(payload) ——> |  sign + send ——>|
-  |                    |                     | <——————————————— txId
-  |                    | <——————————————————  |                 |
-  | 200 + data <———————|                     |                 |
+```mermaid
+sequenceDiagram
+    participant B as Browser (Buyer)
+    participant S as Seller API
+    participant F as Facilitator
+    participant A as Algorand
+
+    B->>S: GET /weather (no payment)
+    S-->>B: 402 + payment requirements (amount, payTo, network)
+    B->>B: Sign Algorand USDC transaction
+    B->>S: GET /weather + X-PAYMENT header
+    S->>F: verify(payload)
+    F->>A: simulate transaction
+    A-->>F: valid
+    F->>A: submit transaction
+    A-->>F: txId
+    F-->>S: settled ✓
+    S-->>B: 200 + weather data
 ```
 
 ---
@@ -164,12 +167,16 @@ Client          Resource Server         Facilitator        Algorand
 
 | Idea | What to change |
 |---|---|
-| **AI API gateway** | Replace weather endpoint with an LLM call, charge per token |
-| **Real-time data** | Stock prices, sports scores, IoT sensor data |
-| **Geo / mapping** | Geocoding, routing, satellite imagery on demand |
-| **Secrets vault** | Return an encrypted payload after payment |
-| **Media streaming** | Pay-per-minute audio or video |
-| **Document generation** | PDFs, reports, or AI summaries billed per run |
+| **AI API gateway** | Replace the weather handler with an LLM call; charge per request or per token |
+| **Real-time data** | Stock prices, sports scores, IoT sensor readings — charge per fetch |
+| **Geo / mapping** | Geocoding, routing, or satellite imagery on demand |
+| **Secrets vault** | Encrypt a payload; return the decryption key only after payment |
+| **Media streaming** | Pay-per-minute audio or video segments |
+| **Document generation** | PDFs, reports, or AI summaries billed per generation |
+
+In every case, the only files you need to touch are:
+- **`seller/src/index.ts`** — swap the `/weather` route and handler for your own endpoint
+- **`ui/src/hooks/useBuyer.ts`** — change the URL and response type to match your new endpoint
 
 ---
 
@@ -207,6 +214,45 @@ railway up
 railway domain
 # Set VITE_SELLER_URL in Vercel to the Railway URL, then redeploy the UI
 ```
+
+---
+
+## About the buyer server
+
+`buyer/` is a **server-side x402 client** — a Hono SSE server that purchases from the seller using a funded mnemonic and streams the events back to the browser. It is **only used for local development and testing**, not required in production.
+
+When the UI is deployed to Vercel, the browser calls the seller directly using the Web3Auth-derived wallet. The buyer server is not needed and is not deployed.
+
+| Scenario | Needs buyer server? |
+|---|---|
+| Running locally (`npm run ui`) | Optional — UI calls seller directly anyway |
+| Deployed UI on Vercel | **No** — browser pays directly via Web3Auth wallet |
+| Server-to-server testing (no browser) | **Yes** — useful for scripted load tests or CI |
+| Building a backend agent that consumes x402 APIs | **Yes** — use `buyer/` as your starting point |
+
+To skip the buyer server entirely, just run `npm run seller` and `npm run ui`. The `BUYER_MNEMONIC` env variable is only required if you run `npm run buyer:server`.
+
+---
+
+## Troubleshooting
+
+**CORS error when clicking Buy**
+The browser is calling a seller URL that isn't publicly accessible, or the `UI_ORIGIN` env var doesn't match your deployed UI's domain. Make sure `VITE_SELLER_URL` points to a public URL (Railway, ngrok, etc.) and that the seller has been restarted after updating `UI_ORIGIN`.
+
+**"Need at least 0.2 ALGO" warning**
+Your wallet needs ALGO to cover Algorand fees and the USDC opt-in minimum reserve. Fund it at [bank.testnet.algorand.network](https://bank.testnet.algorand.network), then wait ~5 seconds and refresh.
+
+**"Insufficient USDC balance"**
+Once you have ALGO, the app auto opts-in to USDC (ASA `10458941`). After opt-in, get testnet USDC from [faucet.circle.com](https://faucet.circle.com). Make sure you select **Algorand Testnet** in the faucet.
+
+**402 received — 0 USDC required** (in the event log)
+The seller's `PAYMENT-REQUIRED` response header isn't reaching the browser. Check that the seller's CORS `exposeHeaders` includes `PAYMENT-REQUIRED`, and that the seller has been redeployed after any config changes.
+
+**Web3Auth modal doesn't open**
+The `VITE_WEB3AUTH_CLIENT_ID` is missing or incorrect, or the Client ID was created on the wrong network (must be **Sapphire Devnet** for testnet). Verify in the [Web3Auth dashboard](https://dashboard.web3auth.io).
+
+**Railway deploy fails**
+Make sure `.env` values are set as Railway environment variables (not just in the local `.env` file). Set `SELLER_ADDRESS`, `FACILITATOR_URL`, and `UI_ORIGIN` in the Railway dashboard under your service's Variables tab.
 
 ---
 
