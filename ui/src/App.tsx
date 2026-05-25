@@ -347,36 +347,65 @@ function PastLogsAccordion({ logs }: { logs: PurchaseLog[] }) {
 
 function SpendingChart({ purchases }: { purchases: Purchase[] }) {
   if (purchases.length < 2) return null;
-  const BAR_H = 48;
-  const GAP = 3;
-  const barW = Math.min(28, Math.max(6, Math.floor((360 - purchases.length * GAP) / purchases.length)));
+
+  const weatherCount  = purchases.filter(p => p.endpoint === 'weather').length;
+  const forecastCount = purchases.filter(p => p.endpoint === 'forecast').length;
+  const weatherSpend  = weatherCount  * 0.001;
+  const forecastSpend = forecastCount * 0.005;
+  const total = weatherSpend + forecastSpend;
+  if (total === 0) return null;
+
+  const r = 38;
+  const cx = 56;
+  const cy = 56;
+  const circ = 2 * Math.PI * r;
+  const forecastArc = (forecastSpend / total) * circ;
+  const weatherArc  = (weatherSpend  / total) * circ;
 
   return (
     <div style={{ marginBottom:20 }}>
-      <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:8 }}>Spend per request</div>
-      <div style={{ display:'flex', alignItems:'flex-end', gap:GAP, height:BAR_H + 4, overflowX:'auto', paddingBottom:2 }}>
-        {purchases.map((p, i) => {
-          const cost = p.endpoint === 'forecast' ? 0.005 : 0.001;
-          const h = Math.round((cost / 0.005) * BAR_H);
-          const color = p.endpoint === 'forecast' ? 'var(--secondary)' : 'var(--primary)';
-          return (
-            <div
-              key={i}
-              title={`/${p.endpoint} $${cost.toFixed(3)} USDC`}
-              style={{ width:barW, height:h, background:color, borderRadius:'3px 3px 0 0', opacity:0.8, flexShrink:0, transition:'opacity 0.2s', cursor:'default' }}
-              onMouseEnter={e => { e.currentTarget.style.opacity = '1'; }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = '0.8'; }}
-            />
-          );
-        })}
-      </div>
-      <div style={{ display:'flex', gap:12, marginTop:6, flexWrap:'wrap' }}>
-        {(['weather', 'forecast'] as Endpoint[]).filter(ep => purchases.some(p => p.endpoint === ep)).map(ep => (
-          <div key={ep} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-muted)' }}>
-            <span style={{ width:8, height:8, borderRadius:2, background: ep === 'forecast' ? 'var(--secondary)' : 'var(--primary)', display:'inline-block' }} />
-            {ep}
-          </div>
-        ))}
+      <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:12 }}>Spend breakdown</div>
+      <div style={{ display:'flex', alignItems:'center', gap:28 }}>
+        <svg width={112} height={112} viewBox="0 0 112 112">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={14} />
+          {forecastCount > 0 && (
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--secondary)" strokeWidth={14}
+              strokeDasharray={`${forecastArc} ${circ}`} strokeDashoffset={0}
+              transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" />
+          )}
+          {weatherCount > 0 && (
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--primary)" strokeWidth={14}
+              strokeDasharray={`${weatherArc} ${circ}`} strokeDashoffset={-forecastArc}
+              transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" />
+          )}
+          <text x={cx} y={cy - 7} textAnchor="middle" fill="var(--text)" fontSize={13} fontWeight={700} fontFamily="var(--mono)">${total.toFixed(3)}</text>
+          <text x={cx} y={cy + 9} textAnchor="middle" fill="var(--text-muted)" fontSize={10} fontFamily="var(--sans)">USDC spent</text>
+        </svg>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          {weatherCount > 0 && (
+            <div>
+              <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:2 }}>
+                <span style={{ width:10, height:10, borderRadius:2, background:'var(--primary)', display:'inline-block', flexShrink:0 }} />
+                <span style={{ fontSize:12, fontWeight:600, color:'var(--text-dim)' }}>Weather</span>
+              </div>
+              <div style={{ fontSize:11, color:'var(--text-muted)', paddingLeft:17 }}>
+                {weatherCount} request{weatherCount !== 1 ? 's' : ''} · ${weatherSpend.toFixed(3)}
+              </div>
+            </div>
+          )}
+          {forecastCount > 0 && (
+            <div>
+              <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:2 }}>
+                <span style={{ width:10, height:10, borderRadius:2, background:'var(--secondary)', display:'inline-block', flexShrink:0 }} />
+                <span style={{ fontSize:12, fontWeight:600, color:'var(--text-dim)' }}>Forecast</span>
+              </div>
+              <div style={{ fontSize:11, color:'var(--text-muted)', paddingLeft:17 }}>
+                {forecastCount} request{forecastCount !== 1 ? 's' : ''} · ${forecastSpend.toFixed(3)}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
