@@ -888,6 +888,7 @@ export default function App() {
       <section className="content-section" style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px', boxSizing:'border-box' }}>
         <div className={hasResult ? 'demo-grid-split' : 'demo-grid-full'} style={{ gap:16, minHeight:240 }}>
           <EventLog events={events} elapsed={elapsed} />
+          {/* CHANGE — replace WeatherCard / ForecastCard with your own result component */}
           {weather  && <WeatherCard  data={weather}  celebrate={celebrate} txid={lastTxid} />}
           {forecast && <ForecastCard data={forecast} celebrate={celebrate} txid={lastTxid} />}
         </div>

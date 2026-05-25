@@ -199,9 +199,10 @@ The x402 pattern works for anything where value should only be released after co
 - In-game item drops — the game server checks payment before minting the item on-chain
 - Anonymous surveys — respondents earn USDC for completing surveys, no account required
 
-In every case the only files you need to touch are:
-- **`seller/src/index.ts`** — swap the `/weather` route and handler for your own endpoint
-- **`ui/src/hooks/useBuyer.ts`** — change the URL and response type to match your new endpoint
+In every case the core files to touch are:
+- **`seller/src/index.ts`** — swap the `/weather` route, price, and handler for your own endpoint (three labeled `CHANGE` comments guide you)
+- **`ui/src/hooks/useBuyer.ts`** — update the `Endpoint` union, response interfaces, and `buy()` handler to match your new endpoint
+- **`ui/src/App.tsx`** — replace `WeatherCard` / `ForecastCard` with a component that renders your response shape; the rest of the UI (event log, purchase history, protocol flow) is reusable as-is
 
 ---
 

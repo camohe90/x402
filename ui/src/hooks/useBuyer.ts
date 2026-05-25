@@ -105,6 +105,7 @@ export interface SellerHealth {
   prices: { weather: string; forecast: string };
 }
 
+// NOTE: fallback prices below must match your seller's defaults if you change them
 export async function checkSellerHealth(): Promise<SellerHealth> {
   try {
     const res = await fetch(`${SELLER_URL}/health`, { signal: AbortSignal.timeout(4000) });
