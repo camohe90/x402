@@ -254,9 +254,10 @@ function Connector({ active, done }: { active: boolean; done: boolean }) {
   );
 }
 
-// CHANGE — replace this card with your own result component, or just let it
-// auto-render your seller's JSON response as-is. It handles scalars, arrays of
-// objects, paidVia / timestamp / txid automatically.
+// CHANGE — ResultCard auto-detects the shape of your seller's JSON response
+// and renders it beautifully. It handles two known shapes (weather + forecast)
+// and falls back to a generic key-value grid for anything else.
+// To adapt: add a new shape-detection branch, or replace the generic fallback.
 function ResultCard({ endpoint, data, celebrate, txid }: {
   endpoint: string;
   data: Record<string, unknown>;
@@ -264,44 +265,120 @@ function ResultCard({ endpoint, data, celebrate, txid }: {
   txid?: string;
 }) {
   const { paidVia, timestamp, ...rest } = data;
+  const paidViaStr    = paidVia    != null ? String(paidVia)    : undefined;
+  const timestampStr  = timestamp  != null ? String(timestamp)  : undefined;
+
+  // Shared card wrapper
+  const shell = (children: React.ReactNode) => (
+    <div style={{ background:'var(--card)', border:'1px solid var(--success)', borderRadius:16, padding:24, boxShadow: celebrate ? '0 0 40px var(--success)66' : '0 0 24px var(--success-dim)', animation: celebrate ? 'celebrate 0.5s ease' : 'fadeIn 0.5s ease', transition:'box-shadow 0.6s ease' }}>
+      {celebrate && <div style={{ textAlign:'center', fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--success)', marginBottom:10, animation:'fadeIn 0.3s ease' }}>✓ Payment successful</div>}
+      {children}
+      {paidViaStr && <div style={{ background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:8, padding:'8px 12px', fontSize:11, fontFamily:'var(--mono)', color:'var(--success)', textAlign:'center' }}>{paidViaStr}</div>}
+      {timestampStr && <div style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', marginTop:8 }}>{new Date(timestampStr).toLocaleTimeString()}</div>}
+      {txid && (
+        <a href={`${EXPLORER_BASE}/${txid}`} target="_blank" rel="noreferrer"
+          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, marginTop:12, padding:'8px', background:'var(--primary-dim)', border:'1px solid var(--primary)33', borderRadius:8, color:'var(--primary)', textDecoration:'none', fontSize:12, fontWeight:600 }}>
+          View on Lora ↗
+        </a>
+      )}
+    </div>
+  );
+
+  // ── Weather shape: { city, temperature, condition, humidity } ─────────────
+  const city        = typeof rest['city']        === 'string' ? rest['city']        : null;
+  const temperature = typeof rest['temperature'] === 'number' ? rest['temperature'] : null;
+  const condition   = typeof rest['condition']   === 'string' ? rest['condition']   : null;
+  const humidity    = typeof rest['humidity']    === 'number' ? rest['humidity']    : null;
+  const days        = Array.isArray(rest['days']) ? (rest['days'] as Record<string, unknown>[]) : null;
+
+  if (city && temperature !== null && condition) {
+    const extraScalars = Object.entries(rest).filter(([k, v]) =>
+      !['city','temperature','condition','humidity'].includes(k) && !Array.isArray(v) && typeof v !== 'object' && v !== null
+    ) as [string, string | number | boolean][];
+    const chips: [string, string][] = humidity !== null ? [['Humidity', `${humidity}%`], ['Network', 'Testnet']] : [['Network', 'Testnet']];
+    return shell(
+      <>
+        <div style={{ fontSize:56, marginBottom:8, textAlign:'center' }}>{condIcon(condition)}</div>
+        <div style={{ textAlign:'center', marginBottom:16 }}>
+          <div style={{ fontSize:22, fontWeight:700 }}>{city}</div>
+          <div style={{ fontSize:40, fontWeight:300, color:'var(--primary)', lineHeight:1.1 }}>{temperature}°F</div>
+          <div style={{ color:'var(--text-dim)', marginTop:4 }}>{condition}</div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:`repeat(${chips.length},1fr)`, gap:8, marginBottom:16 }}>
+          {chips.map(([l, v]) => (
+            <div key={l} style={{ background:'var(--bg)', borderRadius:8, padding:'8px 12px', textAlign:'center' }}>
+              <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:2 }}>{l}</div>
+              <div style={{ fontSize:14, fontWeight:600 }}>{v}</div>
+            </div>
+          ))}
+        </div>
+        {extraScalars.length > 0 && (
+          <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:16 }}>
+            {extraScalars.map(([k, v]) => (
+              <div key={k} style={{ display:'flex', justifyContent:'space-between', padding:'7px 12px', background:'var(--bg)', borderRadius:8 }}>
+                <span style={{ fontSize:12, color:'var(--text-muted)' }}>{formatKey(k)}</span>
+                <span style={{ fontSize:13, fontWeight:600 }}>{formatVal(v)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // ── Forecast shape: { city, days[{ date, tempMax, tempMin, condition }] } ─
+  if (city && days) {
+    return shell(
+      <>
+        <div style={{ textAlign:'center', marginBottom:16 }}>
+          <div style={{ fontSize:22, fontWeight:700 }}>{city}</div>
+          <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:4 }}>{days.length}-day forecast</div>
+        </div>
+        <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:16 }}>
+          {days.map((day, i) => {
+            const date    = typeof day['date']      === 'string' ? day['date']       : '';
+            const tMax    = typeof day['tempMax']   === 'number' ? day['tempMax']    : null;
+            const tMin    = typeof day['tempMin']   === 'number' ? day['tempMin']    : null;
+            const dayCond = typeof day['condition'] === 'string' ? day['condition']  : '';
+            return (
+              <div key={date || i} style={{ display:'grid', gridTemplateColumns:'80px 28px 1fr auto', gap:8, alignItems:'center', padding:'6px 8px', borderRadius:8, background: i === 0 ? 'var(--primary-dim)' : 'var(--bg)' }}>
+                <span style={{ fontSize:12, color: i === 0 ? 'var(--primary)' : 'var(--text-muted)', fontWeight: i === 0 ? 600 : 400 }}>
+                  {i === 0 ? 'Today' : new Date(date + 'T12:00:00').toLocaleDateString('en', { weekday:'short', month:'short', day:'numeric' })}
+                </span>
+                <span style={{ fontSize:18 }}>{condIcon(dayCond)}</span>
+                <span style={{ fontSize:11, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dayCond}</span>
+                {tMax !== null && tMin !== null ? (
+                  <span style={{ fontFamily:'var(--mono)', fontSize:12, fontWeight:600, whiteSpace:'nowrap' }}>
+                    <span style={{ color:'var(--primary)' }}>{tMax}°</span>
+                    <span style={{ color:'var(--text-muted)', fontWeight:400 }}> / {tMin}°</span>
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </>
+    );
+  }
+
+  // ── Generic fallback — key-value chips + array sublists ───────────────────
   const scalars = Object.entries(rest).filter(([, v]) => !Array.isArray(v) && typeof v !== 'object' && v !== null) as [string, string | number | boolean][];
   const arrays  = Object.entries(rest).filter(([, v]) => Array.isArray(v)) as [string, Record<string, unknown>[]][];
-
-  return (
-    <div style={{ background:'var(--card)', border:'1px solid var(--success)', borderRadius:16, padding:24, boxShadow: celebrate ? '0 0 40px var(--success)66' : '0 0 24px var(--success-dim)', animation: celebrate ? 'celebrate 0.5s ease' : 'fadeIn 0.5s ease', transition:'box-shadow 0.6s ease', minWidth:0 }}>
-      {celebrate && (
-        <div style={{ textAlign:'center', fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--success)', marginBottom:12, animation:'fadeIn 0.3s ease' }}>
-          ✓ Payment successful
-        </div>
-      )}
-
-      {/* Endpoint label + optional condition icon */}
-      {(() => {
-        const cond = scalars.find(([k]) => k === 'condition')?.[1];
-        const icon = cond ? condIcon(String(cond)) : null;
-        return (
-          <div style={{ textAlign:'center', marginBottom:16 }}>
-            {icon && <div style={{ fontSize:40, marginBottom:4 }}>{icon}</div>}
-            <div style={{ fontSize:13, fontWeight:600, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--text-muted)' }}>{endpoint}</div>
-          </div>
-        );
-      })()}
-
-      {/* Scalar fields — auto-rendered from response */}
+  return shell(
+    <>
+      <div style={{ textAlign:'center', fontSize:13, fontWeight:600, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:16 }}>{endpoint}</div>
       {scalars.length > 0 ? (
-        <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:arrays.length ? 16 : 12 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:8, marginBottom:arrays.length ? 16 : 12 }}>
           {scalars.map(([k, v]) => (
-            <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 12px', background:'var(--bg)', borderRadius:8 }}>
-              <span style={{ fontSize:12, color:'var(--text-muted)' }}>{formatKey(k)}</span>
-              <span style={{ fontSize:13, fontWeight:600, fontFamily:'var(--mono)', color:'var(--text)', maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            <div key={k} style={{ background:'var(--bg)', borderRadius:8, padding:'8px 12px', textAlign:'center' }}>
+              <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:2 }}>{formatKey(k)}</div>
+              <div style={{ fontSize:13, fontWeight:600, fontFamily:'var(--mono)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                 {k === 'condition' ? `${condIcon(String(v))} ${v}` : formatVal(v)}
-              </span>
+              </div>
             </div>
           ))}
         </div>
       ) : null}
-
-      {/* Array fields — e.g. forecast days */}
       {arrays.map(([k, arr]) => (
         <div key={k} style={{ marginBottom:12 }}>
           <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>{formatKey(k)}</div>
@@ -310,8 +387,8 @@ function ResultCard({ endpoint, data, celebrate, txid }: {
               const condVal = typeof item['condition'] === 'string' ? item['condition'] : null;
               const entries = Object.entries(item).filter(([, v]) => typeof v !== 'object' && v !== null);
               return (
-                <div key={i} style={{ display:'flex', gap:8, alignItems:'center', padding:'5px 10px', fontSize:12, color:'var(--text-dim)', background: i === 0 ? 'var(--primary-dim)' : 'var(--bg)', borderRadius:6, flexWrap:'wrap' }}>
-                  {condVal && <span style={{ fontSize:16 }}>{condIcon(condVal)}</span>}
+                <div key={i} style={{ display:'flex', gap:8, alignItems:'center', padding:'5px 10px', fontSize:12, background: i === 0 ? 'var(--primary-dim)' : 'var(--bg)', borderRadius:6, flexWrap:'wrap' }}>
+                  {condVal ? <span style={{ fontSize:16 }}>{condIcon(condVal)}</span> : null}
                   {entries.map(([ek, v], j) => (
                     <span key={ek} style={{ color: i === 0 && j === 0 ? 'var(--primary)' : 'var(--text-dim)' }}>
                       {ek === 'condition' ? String(v) : formatVal(v)}
@@ -323,25 +400,7 @@ function ResultCard({ endpoint, data, celebrate, txid }: {
           </div>
         </div>
       ))}
-
-      {/* paidVia badge */}
-      {paidVia != null ? (
-        <div style={{ background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:8, padding:'7px 12px', fontSize:11, fontFamily:'var(--mono)', color:'var(--success)', textAlign:'center', marginTop:4 }}>
-          {String(paidVia)}
-        </div>
-      ) : null}
-      {timestamp != null ? (
-        <div style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', marginTop:6 }}>
-          {new Date(String(timestamp)).toLocaleTimeString()}
-        </div>
-      ) : null}
-      {txid ? (
-        <a href={`${EXPLORER_BASE}/${txid}`} target="_blank" rel="noreferrer"
-          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, marginTop:12, padding:'8px', background:'var(--primary-dim)', border:'1px solid var(--primary)33', borderRadius:8, color:'var(--primary)', textDecoration:'none', fontSize:12, fontWeight:600 }}>
-          View on Lora ↗
-        </a>
-      ) : null}
-    </div>
+    </>
   );
 }
 
@@ -620,30 +679,41 @@ const data = await response.json();
 
       {/* Live endpoints */}
       <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, padding:20, marginBottom:24 }}>
-        <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:14, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <span>Live endpoints — this demo</span>
+        {/* Header */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+          <span style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>Live endpoints — this demo</span>
           <span style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, fontWeight:500 }}>
-            <span style={{ width:6, height:6, borderRadius:'50%', background: health?.online ? 'var(--success)' : 'var(--warning)', display:'inline-block' }} />
-            {health === null ? 'checking…' : health.online ? 'online' : 'offline'}
+            <span style={{ width:6, height:6, borderRadius:'50%', background: health?.online ? 'var(--success)' : 'var(--warning)', display:'inline-block', boxShadow: health?.online ? '0 0 6px var(--success)88' : 'none' }} />
+            <span style={{ color: health?.online ? 'var(--success)' : 'var(--warning)', fontSize:11, fontWeight:600 }}>
+              {health === null ? 'checking…' : health.online ? 'online' : 'offline'}
+            </span>
           </span>
         </div>
+        {/* Base URL */}
+        <div style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text-muted)', marginBottom:14, paddingLeft:2 }}>
+          {sellerUrl.replace(/https?:\/\//, '')}
+        </div>
+        {/* Endpoint rows */}
         {[
-          { method:'GET', path:'/weather',  price: health?.prices.weather  ?? '$0.001', desc:'Current conditions for a random city' },
-          { method:'GET', path:'/forecast', price: health?.prices.forecast ?? '$0.005', desc:'7-day forecast for a random city' },
-        ].map(ep => (
-          <div key={ep.path} style={{ display:'grid', gridTemplateColumns:'auto 1fr auto', gap:12, alignItems:'center', marginBottom:10, padding:'8px 0', borderBottom:'1px solid var(--border)' }}>
-            <span style={{ fontFamily:'var(--mono)', fontSize:12, padding:'4px 8px', background:'var(--primary-dim)', color:'var(--primary)', borderRadius:6, fontWeight:700 }}>{ep.method}</span>
-            <div>
-              <span style={{ fontFamily:'var(--mono)', fontSize:12, color:'var(--text-dim)' }}>{sellerUrl.replace(/https?:\/\//, '')}<span style={{ color:'var(--primary)' }}>{ep.path}</span></span>
-              <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>{ep.desc}</div>
+          { path:'/weather',  price: health?.prices.weather  ?? '$0.001', desc:'Current conditions for a random city',
+            schema:'city · temperature · condition · humidity' },
+          { path:'/forecast', price: health?.prices.forecast ?? '$0.005', desc:'7-day forecast for a random city',
+            schema:'city · days[date · tempMax · tempMin · condition]' },
+        ].map((ep, i, arr) => (
+          <div key={ep.path} style={{ marginBottom: i < arr.length - 1 ? 8 : 0 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'auto 1fr auto', gap:12, alignItems:'center', padding:'10px 12px', borderRadius:10, background:'var(--bg)', border:'1px solid var(--border)' }}>
+              <span style={{ fontFamily:'var(--mono)', fontSize:11, padding:'3px 7px', background:'var(--primary-dim)', color:'var(--primary)', borderRadius:5, fontWeight:700, letterSpacing:'0.04em' }}>GET</span>
+              <div>
+                <span style={{ fontFamily:'var(--mono)', fontSize:13, fontWeight:600, color:'var(--primary)' }}>{ep.path}</span>
+                <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>{ep.desc}</div>
+              </div>
+              <span style={{ fontFamily:'var(--mono)', fontSize:13, color:'var(--success)', fontWeight:700, whiteSpace:'nowrap' }}>{ep.price}</span>
             </div>
-            <span style={{ fontFamily:'var(--mono)', fontSize:12, color:'var(--success)', fontWeight:700, whiteSpace:'nowrap' }}>{ep.price}</span>
+            <div style={{ padding:'5px 14px', fontSize:11, fontFamily:'var(--mono)', color:'var(--text-muted)', letterSpacing:'0.02em' }}>
+              → {'{'} <span style={{ color:'var(--text-dim)' }}>{ep.schema}</span> {'}'}
+            </div>
           </div>
         ))}
-        <div style={{ marginTop:4, padding:'10px 14px', background:'var(--bg)', borderRadius:8, fontSize:12, fontFamily:'var(--mono)', color:'var(--text-muted)', lineHeight:1.6 }}>
-          /weather  → {'{ city, temperature, condition, humidity, paidVia, timestamp }'}<br/>
-          /forecast → {'{ city, days: [{ date, tempMax, tempMin, condition }], paidVia, timestamp }'}
-        </div>
       </div>
 
       {/* Tabbed code snippet */}
