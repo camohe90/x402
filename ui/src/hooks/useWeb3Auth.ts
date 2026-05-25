@@ -106,12 +106,30 @@ export function useWeb3Auth() {
     const w3a = buildWeb3Auth();
     instanceRef.current = w3a;
     setStatus('initializing');
+
+    // Web3Auth's init() resolves before connector setup completes — the CONNECTORS_UPDATED
+    // handler that calls setupConnector() is async and fires after init() returns. Session
+    // restore (auto-connect) therefore completes via events, not within init()'s promise.
+    // Listen for "connected"/"rehydration_error" BEFORE calling init() to avoid missing them.
+    const onConnected = () => {
+      if (w3a.provider) {
+        setProvider(w3a.provider);
+        setStatus('connected');
+      }
+    };
+    const onRehydrationError = () => {
+      setProvider(null);
+      setStatus('ready');
+    };
+    w3a.on('connected', onConnected);
+    w3a.on('rehydration_error', onRehydrationError);
+
     w3a.init()
       .then(() => {
-        if (w3a.connected && w3a.provider) {
-          setProvider(w3a.provider);
-          setStatus('connected');
-        } else {
+        // If no cached connector, there is no session to restore — go straight to ready.
+        // If cachedConnector is set, the connector setup is still in progress; the event
+        // listeners above will fire when it completes (or fails).
+        if (!w3a.cachedConnector) {
           setStatus('ready');
         }
       })
@@ -119,6 +137,17 @@ export function useWeb3Auth() {
         setError(e.message ?? 'Init failed');
         setStatus('error');
       });
+
+    // Fallback: if session restore takes more than 10 s, give up and show connect button.
+    const timeout = setTimeout(() => {
+      setStatus(s => (s === 'initializing' ? 'ready' : s));
+    }, 10_000);
+
+    return () => {
+      clearTimeout(timeout);
+      w3a.off('connected', onConnected);
+      w3a.off('rehydration_error', onRehydrationError);
+    };
   }, []);
 
   const connect = async () => {
