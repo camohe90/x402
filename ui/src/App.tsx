@@ -435,11 +435,6 @@ function ResultCard({ endpoint, data, celebrate, txid }: {
 }
 
 function EventLog({ events, elapsed }: { events: BuyEvent[]; elapsed: number | null }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (events.length > 0) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [events.length]);
-
   return (
     <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden', fontFamily:'var(--mono)', fontSize:12, height:'100%', display:'flex', flexDirection:'column' }}>
       <div style={{ padding:'10px 16px', borderBottom:'1px solid var(--border)', fontSize:11, fontFamily:'var(--sans)', fontWeight:600, color:'var(--text-muted)', letterSpacing:'0.08em', textTransform:'uppercase', display:'flex', alignItems:'center', gap:8 }}>
@@ -457,7 +452,6 @@ function EventLog({ events, elapsed }: { events: BuyEvent[]; elapsed: number | n
             </div>
           ))
         }
-        <div ref={bottomRef} />
       </div>
     </div>
   );
@@ -934,13 +928,12 @@ export default function App() {
     return () => clearTimeout(t);
   }, [purchases.length, address]);
 
-  // Celebration on new data + scroll result into view
+  // Celebration on new data
   useEffect(() => {
     if (!result) return;
     setCelebrate(true);
-    const t1 = setTimeout(() => setCelebrate(false), 2500);
-    const t2 = setTimeout(() => resultCardRef.current?.scrollIntoView({ behavior:'smooth', block:'nearest' }), 150);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    const t = setTimeout(() => setCelebrate(false), 2500);
+    return () => clearTimeout(t);
   }, [result]);
 
   // Total purchase timer
@@ -1161,25 +1154,50 @@ export default function App() {
       <BuildOnThis health={health} />
 
       {/* Footer */}
-      <footer style={{ borderTop:'1px solid var(--border)', padding:'24px 40px', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12, color:'var(--text-muted)', fontSize:13 }}>
-        <Logo />
-        <div style={{ display:'flex', gap:16, flexWrap:'wrap', alignItems:'center' }}>
-          {[
-            { label:'ALGO faucet', href:'https://bank.testnet.algorand.network' },
-            { label:'USDC faucet', href:'https://faucet.circle.com' },
-            { label:'Explorer',    href:'https://lora.algokit.io/testnet' },
-            { label:'Facilitator', href:'https://facilitator.goplausible.xyz' },
-            { label:'GitHub',      href:GITHUB_URL },
-          ].map(({ label, href }) => (
-            <a key={label} href={href} target="_blank" rel="noreferrer"
-              style={{ color:'var(--text-muted)', textDecoration:'none', transition:'color 0.2s' }}
-              onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
-              onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
-              {label} ↗
-            </a>
-          ))}
-          <span style={{ color:'var(--border)' }}>·</span>
-          <span>x402 v2 · Algorand Testnet</span>
+      <footer style={{ borderTop:'1px solid var(--border)', fontSize:13 }}>
+        <div style={{ maxWidth:900, margin:'0 auto', padding:'28px 40px', display:'flex', flexDirection:'column', gap:20 }}>
+          {/* Top row: logo + built-with */}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:16 }}>
+            <Logo />
+            <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+              <span style={{ fontSize:11, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)' }}>Built with</span>
+              {[
+                { name:'Algorand', dot:'#00b4d8', href:'https://developer.algorand.org' },
+                { name:'USDC',     dot:'#2775ca', href:'https://www.circle.com/usdc' },
+                { name:'Web3Auth', dot:'#0364ff', href:'https://web3auth.io' },
+                { name:'Hono',     dot:'#e36002', href:'https://hono.dev' },
+                { name:'Vite',     dot:'#646cff', href:'https://vitejs.dev' },
+              ].map(({ name, dot, href }) => (
+                <a key={name} href={href} target="_blank" rel="noreferrer"
+                  style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'5px 11px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:20, fontSize:12, fontWeight:500, color:'var(--text-dim)', textDecoration:'none', transition:'all 0.2s' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor=dot; e.currentTarget.style.color=dot; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--text-dim)'; }}>
+                  <span style={{ width:6, height:6, borderRadius:'50%', background:dot, display:'inline-block', flexShrink:0 }} />
+                  {name}
+                </a>
+              ))}
+            </div>
+          </div>
+          {/* Bottom row: links + version */}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12, borderTop:'1px solid var(--border)', paddingTop:16, color:'var(--text-muted)' }}>
+            <div style={{ display:'flex', gap:16, flexWrap:'wrap', alignItems:'center' }}>
+              {[
+                { label:'ALGO faucet', href:'https://bank.testnet.algorand.network' },
+                { label:'USDC faucet', href:'https://faucet.circle.com' },
+                { label:'Explorer',    href:'https://lora.algokit.io/testnet' },
+                { label:'Facilitator', href:'https://facilitator.goplausible.xyz' },
+                { label:'GitHub',      href:GITHUB_URL },
+              ].map(({ label, href }) => (
+                <a key={label} href={href} target="_blank" rel="noreferrer"
+                  style={{ color:'var(--text-muted)', textDecoration:'none', transition:'color 0.2s' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
+                  {label} ↗
+                </a>
+              ))}
+            </div>
+            <span>MIT · x402 v2 · Algorand Testnet</span>
+          </div>
         </div>
       </footer>
 
