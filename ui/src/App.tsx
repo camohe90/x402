@@ -613,7 +613,11 @@ function PurchaseHistory({ purchases, prices }: { purchases: Purchase[]; prices:
             onMouseLeave={e => (e.currentTarget.style.background='transparent')}>
             <span style={{ color:'var(--text-muted)', fontFamily:'var(--mono)', fontSize:11 }}>{new Date(p.purchasedAt).toLocaleTimeString()}</span>
             <span style={{ fontWeight:500 }}>/{p.endpoint} <span style={{ color: p.endpoint === 'forecast' ? 'var(--secondary)' : 'var(--primary)', fontSize:11 }}>{prices[p.endpoint] ?? ''}</span></span>
-            <span style={{ color:'var(--text-dim)', fontSize:12 }}>{firstResult(p.result)}</span>
+            <span style={{ color:'var(--text-dim)', fontSize:12 }}>
+              {firstResult(p.result) === '—'
+                ? <span style={{ color:'var(--border)', fontSize:14 }} title="Result not saved (historic purchase)">·</span>
+                : firstResult(p.result)}
+            </span>
             <span style={{ fontFamily:'var(--mono)', fontSize:11, color: p.txid ? 'var(--text-dim)' : 'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:16 }}>{p.txid ?? '—'}</span>
             <span style={{ textAlign:'right' }}>
               {p.txid
@@ -1161,6 +1165,12 @@ export default function App() {
               </>
             )}
           </div>
+        ) : balance === null ? (
+          /* Balance still loading — show skeleton to avoid flashing buy button → stepper */
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:16 }}>
+            <Skeleton width={280} height={44} radius={10} />
+            <Skeleton width={220} height={52} radius={12} />
+          </div>
         ) : (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:16 }}>
             {/* Endpoint selector */}
@@ -1179,7 +1189,7 @@ export default function App() {
             ) : (
               <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', justifyContent:'center' }}>
                 <button onClick={handleBuy} disabled={loading || buyDisabled}
-                  style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: buyDisabled ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: buyDisabled ? 'var(--text-muted)' : '#001a15', cursor: (loading || buyDisabled) ? 'not-allowed' : 'pointer', boxShadow: buyDisabled ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em', transition:'all 0.2s', display:'flex', alignItems:'center', gap:10 }}>
+                  style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: buyDisabled ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: buyDisabled ? 'var(--text-muted)' : '#001a15', cursor: (loading || buyDisabled) ? 'not-allowed' : 'pointer', boxShadow: buyDisabled ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em', transition:'background 0.15s, color 0.15s', display:'flex', alignItems:'center', gap:10 }}>
                   {loading && <span style={{ width:14, height:14, border:'2px solid currentColor', borderTopColor:'transparent', borderRadius:'50%', animation:'spin 0.7s linear infinite', opacity:0.8, flexShrink:0 }} />}
                   {loading ? 'Purchasing…' : optingIn ? 'Opting in to USDC…' : `Buy /${selectedEndpoint} — ${endpointPrice[selectedEndpoint] ?? ''}`}
                 </button>
