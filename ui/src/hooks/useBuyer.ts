@@ -80,13 +80,14 @@ export function useBuyer() {
 
       if (res.status === 402) {
         try {
-          const body = await res.clone().json() as { accepts?: Array<{ amount: string; payTo: string }> };
-          const req = body.accepts?.[0];
-          addEvent({
-            type: 'payment_required',
-            amount: req?.amount,
-            payTo: req?.payTo,
-          });
+          const prHeader = res.headers.get('PAYMENT-REQUIRED') ?? res.headers.get('payment-required');
+          if (prHeader) {
+            const decoded = JSON.parse(Buffer.from(prHeader, 'base64').toString('utf-8')) as { accepts?: Array<{ amount: string; payTo: string }> };
+            const req = decoded.accepts?.[0];
+            addEvent({ type: 'payment_required', amount: req?.amount, payTo: req?.payTo });
+          } else {
+            addEvent({ type: 'payment_required' });
+          }
         } catch {
           addEvent({ type: 'payment_required' });
         }

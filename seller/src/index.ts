@@ -83,7 +83,7 @@ app.use(cors({
     }
     return null as unknown as string;
   },
-  exposeHeaders: ['payment-required', 'PAYMENT-RESPONSE', 'X-PAYMENT-RESPONSE'],
+  exposeHeaders: ['PAYMENT-REQUIRED', 'payment-required', 'PAYMENT-RESPONSE', 'X-PAYMENT-RESPONSE'],
 }));
 
 // Payment middleware — intercepts all requests; returns 402 if no valid payment
