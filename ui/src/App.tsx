@@ -560,9 +560,21 @@ function OnboardingStepper({ balance, optingIn, address }: { balance: WalletBala
   );
 }
 
+const PAGE_SIZE = 8;
+
 function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
-  if (purchases.length === 0) return null;
+  const [page, setPage] = useState(0);
   const endpointPrice: Record<Endpoint, number> = { weather: 0.001, forecast: 0.005 };
+
+  if (purchases.length === 0) return null;
+
+  const sorted   = [...purchases].reverse();
+  const pages    = Math.ceil(sorted.length / PAGE_SIZE);
+  const safePage = Math.min(page, pages - 1);
+  const slice    = sorted.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const from     = safePage * PAGE_SIZE + 1;
+  const to       = Math.min(safePage * PAGE_SIZE + PAGE_SIZE, sorted.length);
+
   return (
     <section style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px' }}>
       <div style={{ fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:0 }}>Purchase History</div>
@@ -573,15 +585,14 @@ function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
         <div className="purchase-grid purchase-header" style={{ padding:'10px 20px', borderBottom:'1px solid var(--border)', fontSize:11, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)' }}>
           {['Time','Endpoint','Result','Tx ID','Explorer'].map((h,i) => <span key={h} style={{ textAlign: i===4 ? 'right' : 'left' }}>{h}</span>)}
         </div>
-        {[...purchases].reverse().map((p, i) => (
-          <div key={i} className="purchase-grid" style={{ padding:'12px 20px', borderBottom: i < purchases.length-1 ? '1px solid var(--border)' : 'none', alignItems:'center', fontSize:13, animation:'fadeIn 0.4s ease' }}
+        {slice.map((p, i) => (
+          <div key={safePage * PAGE_SIZE + i} className="purchase-grid"
+            style={{ padding:'12px 20px', borderBottom: i < slice.length - 1 ? '1px solid var(--border)' : 'none', alignItems:'center', fontSize:13, animation:'fadeIn 0.3s ease' }}
             onMouseEnter={e => (e.currentTarget.style.background='var(--card-hover)')}
             onMouseLeave={e => (e.currentTarget.style.background='transparent')}>
             <span style={{ color:'var(--text-muted)', fontFamily:'var(--mono)', fontSize:11 }}>{new Date(p.purchasedAt).toLocaleTimeString()}</span>
             <span style={{ fontWeight:500 }}>/{p.endpoint} <span style={{ color: p.endpoint === 'forecast' ? 'var(--secondary)' : 'var(--primary)', fontSize:11 }}>${endpointPrice[p.endpoint].toFixed(3)}</span></span>
-            <span style={{ color:'var(--text-dim)', fontSize:12 }}>
-              {firstResult((p.weather ?? p.forecast) as Record<string, unknown> | undefined)}
-            </span>
+            <span style={{ color:'var(--text-dim)', fontSize:12 }}>{firstResult((p.weather ?? p.forecast) as Record<string, unknown> | undefined)}</span>
             <span style={{ fontFamily:'var(--mono)', fontSize:11, color: p.txid ? 'var(--text-dim)' : 'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:16 }}>{p.txid ?? '—'}</span>
             <span style={{ textAlign:'right' }}>
               {p.txid
@@ -593,6 +604,31 @@ function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
             </span>
           </div>
         ))}
+
+        {/* Pagination footer */}
+        {pages > 1 && (
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 20px', borderTop:'1px solid var(--border)', background:'var(--bg)' }}>
+            <span style={{ fontSize:11, color:'var(--text-muted)', fontFamily:'var(--mono)' }}>
+              {from}–{to} of {sorted.length}
+            </span>
+            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+              {Array.from({ length: pages }, (_, i) => (
+                <button key={i} onClick={() => setPage(i)}
+                  style={{ width:28, height:28, borderRadius:6, border:'1px solid', cursor:'pointer', fontSize:11, fontWeight:600, transition:'all 0.15s',
+                    borderColor: i === safePage ? 'var(--primary)' : 'var(--border)',
+                    background:  i === safePage ? 'var(--primary-dim)' : 'transparent',
+                    color:       i === safePage ? 'var(--primary)'     : 'var(--text-muted)',
+                  }}>
+                  {i + 1}
+                </button>
+              ))}
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0}
+                style={{ width:28, height:28, borderRadius:6, border:'1px solid var(--border)', background:'transparent', cursor: safePage === 0 ? 'not-allowed' : 'pointer', color: safePage === 0 ? 'var(--border)' : 'var(--text-muted)', fontSize:14, marginLeft:4 }}>‹</button>
+              <button onClick={() => setPage(p => Math.min(pages - 1, p + 1))} disabled={safePage === pages - 1}
+                style={{ width:28, height:28, borderRadius:6, border:'1px solid var(--border)', background:'transparent', cursor: safePage === pages - 1 ? 'not-allowed' : 'pointer', color: safePage === pages - 1 ? 'var(--border)' : 'var(--text-muted)', fontSize:14 }}>›</button>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
