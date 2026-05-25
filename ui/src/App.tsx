@@ -718,20 +718,31 @@ const data = await response.json();
 
       {/* Tabbed code snippet */}
       <div style={{ marginTop:8 }}>
-        <div style={{ display:'flex', gap:2, marginBottom:0, background:'var(--card)', border:'1px solid var(--border)', borderBottom:'none', borderRadius:'12px 12px 0 0', padding:'6px 6px 0', width:'fit-content' }}>
+        <div style={{ display:'flex', gap:6, marginBottom:0, borderBottom:'1px solid var(--border)', paddingBottom:0 }}>
           {([
             { id:'seller', label:'Seller', file:'seller/src/index.ts', color:'var(--secondary)', dim:'var(--secondary-dim)' },
             { id:'client', label:'Client', file:'buyer/src/buyer.ts',  color:'var(--primary)',   dim:'var(--primary-dim)'   },
-          ] as const).map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              style={{ padding:'7px 16px', fontSize:12, fontWeight:600, borderRadius:'8px 8px 0 0', border:'none', cursor:'pointer', transition:'all 0.15s',
-                background: activeTab === tab.id ? '#0d1117' : 'transparent',
-                color: activeTab === tab.id ? tab.color : 'var(--text-muted)',
-              }}>
-              {tab.label}
-              <span style={{ marginLeft:8, fontSize:10, opacity:0.6, fontWeight:400 }}>{tab.file}</span>
-            </button>
-          ))}
+          ] as const).map(tab => {
+            const active = activeTab === tab.id;
+            return (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                style={{
+                  padding:'8px 16px 9px', fontSize:12, border:'none', cursor:'pointer', transition:'all 0.15s',
+                  background: active ? 'var(--card)' : 'transparent',
+                  borderRadius:'8px 8px 0 0',
+                  borderTop:    active ? `1px solid var(--border)` : '1px solid transparent',
+                  borderLeft:   active ? `1px solid var(--border)` : '1px solid transparent',
+                  borderRight:  active ? `1px solid var(--border)` : '1px solid transparent',
+                  borderBottom: active ? `2px solid ${tab.color}`  : '2px solid transparent',
+                  marginBottom: active ? '-1px' : '0',
+                  display:'flex', alignItems:'center', gap:8,
+                }}>
+                <span style={{ width:7, height:7, borderRadius:'50%', background: active ? tab.color : 'var(--text-muted)', display:'inline-block', flexShrink:0, transition:'background 0.15s' }} />
+                <span style={{ fontWeight:700, color: active ? tab.color : 'var(--text-muted)', transition:'color 0.15s' }}>{tab.label}</span>
+                <span style={{ fontSize:10, fontWeight:400, color: active ? 'var(--text-muted)' : 'var(--border)', fontFamily:'var(--mono)', transition:'color 0.15s' }}>{tab.file}</span>
+              </button>
+            );
+          })}
         </div>
         <CodeBlock code={activeTab === 'seller' ? sellerCode : clientCode} />
       </div>
