@@ -754,7 +754,8 @@ const data = await response.json();
 
       {/* Tabbed code snippet */}
       <div style={{ marginTop:8 }}>
-        <div style={{ display:'flex', gap:6, marginBottom:0, borderBottom:'1px solid var(--border)', paddingBottom:0 }}>
+        {/* Segmented control — both buttons always look clickable */}
+        <div style={{ display:'inline-flex', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:10, padding:4, gap:4, marginBottom:8 }}>
           {([
             { id:'seller', label:'Seller', file:'seller/src/index.ts', color:'var(--secondary)', dim:'var(--secondary-dim)' },
             { id:'client', label:'Client', file:'buyer/src/buyer.ts',  color:'var(--primary)',   dim:'var(--primary-dim)'   },
@@ -763,19 +764,21 @@ const data = await response.json();
             return (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 style={{
-                  padding:'8px 16px 9px', fontSize:12, border:'none', cursor:'pointer', transition:'all 0.15s',
-                  background: active ? 'var(--card)' : 'transparent',
-                  borderRadius:'8px 8px 0 0',
-                  borderTop:    active ? `1px solid var(--border)` : '1px solid transparent',
-                  borderLeft:   active ? `1px solid var(--border)` : '1px solid transparent',
-                  borderRight:  active ? `1px solid var(--border)` : '1px solid transparent',
-                  borderBottom: active ? `2px solid ${tab.color}`  : '2px solid transparent',
-                  marginBottom: active ? '-1px' : '0',
+                  padding:'7px 16px', fontSize:12, cursor:'pointer', transition:'all 0.18s',
+                  borderRadius:7,
+                  border: active ? `1px solid ${tab.color}44` : '1px solid transparent',
+                  background: active ? tab.dim : 'transparent',
                   display:'flex', alignItems:'center', gap:8,
                 }}>
-                <span style={{ width:7, height:7, borderRadius:'50%', background: active ? tab.color : 'var(--text-muted)', display:'inline-block', flexShrink:0, transition:'background 0.15s' }} />
-                <span style={{ fontWeight:700, color: active ? tab.color : 'var(--text-muted)', transition:'color 0.15s' }}>{tab.label}</span>
-                <span style={{ fontSize:10, fontWeight:400, color: active ? 'var(--text-muted)' : 'var(--border)', fontFamily:'var(--mono)', transition:'color 0.15s' }}>{tab.file}</span>
+                <span style={{ width:7, height:7, borderRadius:'50%', flexShrink:0, transition:'all 0.18s',
+                  background: active ? tab.color : 'var(--border)',
+                  boxShadow:  active ? `0 0 6px ${tab.color}88` : 'none',
+                }} />
+                <span style={{ fontWeight:700, transition:'color 0.18s', color: active ? tab.color : 'var(--text-dim)' }}>{tab.label}</span>
+                <span style={{ fontSize:10, fontWeight:400, fontFamily:'var(--mono)', transition:'color 0.18s',
+                  color: active ? 'var(--text-muted)' : 'var(--text-muted)',
+                  opacity: active ? 1 : 0.5,
+                }}>{tab.file}</span>
               </button>
             );
           })}
