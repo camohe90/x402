@@ -36,7 +36,7 @@ The `seller` exposes `GET /weather` and `GET /forecast` behind USDC paywalls. An
 Before you start, make sure you have:
 
 - **Node.js 18+** and **npm 9+**
-- **An Algorand testnet wallet address** — this becomes `SELLER_ADDRESS`, the address that receives payments. Create one with [Lora](https://lora.algokit.io/testnet) (browser) or a mobile wallet such as [Pera](https://perawallet.app) or [Defly](https://defly.app)
+- **An Algorand testnet wallet address** — this becomes `SELLER_ADDRESS`, the address that receives payments. Create one with [Lute Wallet](https://lute.app) (browser) or a mobile wallet such as [Pera](https://perawallet.app) or [Defly](https://defly.app)
 - **Testnet ALGO** in that wallet (at least 0.5 ALGO for fees) — [bank.testnet.algorand.network](https://bank.testnet.algorand.network)
 - **A Web3Auth account and Client ID** — sign up at [dashboard.web3auth.io](https://dashboard.web3auth.io), create a project on **Sapphire Devnet**, and copy the Client ID
 - **Vercel CLI** (for deploying the UI) — `npm i -g vercel`
