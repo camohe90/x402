@@ -3,7 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useWeb3Auth, fetchWalletBalance, optInToUSDC } from './hooks/useWeb3Auth';
 import type { WalletBalance } from './hooks/useWeb3Auth';
 import { useBuyer, checkSellerHealth } from './hooks/useBuyer';
-import type { BuyEvent, Purchase, WeatherData, ForecastData, QuoteData, Endpoint, SellerHealth, PurchaseLog } from './hooks/useBuyer';
+import type { BuyEvent, Purchase, WeatherData, ForecastData, Endpoint, SellerHealth, PurchaseLog } from './hooks/useBuyer';
 
 // ── Step definitions ──────────────────────────────────────────────────────────
 
@@ -50,8 +50,7 @@ function eventLabel(e: BuyEvent) {
     case 'success': {
       const d = e.data;
       if (!d) return 'Data delivered';
-      if ('days' in d)    return `Forecast delivered — ${(d as ForecastData).city}, ${(d as ForecastData).days.length} days`;
-      if ('text' in d)    return `Quote delivered — ${(d as QuoteData).author}`;
+      if ('days' in d) return `Forecast delivered — ${(d as ForecastData).city}, ${(d as ForecastData).days.length} days`;
       return `Weather delivered — ${(d as WeatherData).city}, ${(d as WeatherData).temperature}°F`;
     }
     case 'error': return `Error: ${e.message}`;
@@ -63,7 +62,6 @@ function stepIcon(id: StepId) {
 }
 function endpointIcon(ep: Endpoint) {
   if (ep === 'forecast') return '📅';
-  if (ep === 'quote')    return '💬';
   return '🌡️';
 }
 function fmtTime(ms: number) {
@@ -293,30 +291,6 @@ function ForecastCard({ data, celebrate, txid }: { data: ForecastData; celebrate
   );
 }
 
-function QuoteCard({ data, celebrate, txid }: { data: QuoteData; celebrate: boolean; txid?: string }) {
-  return (
-    <div style={{ background:'var(--card)', border:'1px solid var(--success)', borderRadius:16, padding:24, boxShadow: celebrate ? '0 0 40px var(--success)66' : '0 0 24px var(--success-dim)', animation: celebrate ? 'celebrate 0.5s ease' : 'fadeIn 0.5s ease', transition:'box-shadow 0.6s ease' }}>
-      {celebrate && <div style={{ textAlign:'center', fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--success)', marginBottom:10 }}>✓ Payment successful</div>}
-      <div style={{ fontSize:36, textAlign:'center', marginBottom:16 }}>💬</div>
-      <blockquote style={{ fontSize:14, lineHeight:1.85, color:'var(--text)', fontStyle:'italic', textAlign:'center', marginBottom:16, padding:'0 8px' }}>
-        "{data.text}"
-      </blockquote>
-      <div style={{ textAlign:'center', marginBottom:8 }}>
-        <span style={{ fontSize:13, fontWeight:600, color:'var(--primary)' }}>— {data.author}</span>
-      </div>
-      <div style={{ textAlign:'center', marginBottom:16 }}>
-        <span style={{ fontSize:11, padding:'2px 10px', background:'var(--secondary-dim)', color:'var(--secondary)', borderRadius:20 }}>{data.category}</span>
-      </div>
-      <div style={{ background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:8, padding:'8px 12px', fontSize:11, fontFamily:'var(--mono)', color:'var(--success)', textAlign:'center' }}>{data.paidVia}</div>
-      {txid && (
-        <a href={`${EXPLORER_BASE}/${txid}`} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, marginTop:12, padding:'8px', background:'var(--primary-dim)', border:'1px solid var(--primary)33', borderRadius:8, color:'var(--primary)', textDecoration:'none', fontSize:12, fontWeight:600 }}>
-          View on Lora ↗
-        </a>
-      )}
-    </div>
-  );
-}
-
 function EventLog({ events, elapsed }: { events: BuyEvent[]; elapsed: number | null }) {
   return (
     <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden', fontFamily:'var(--mono)', fontSize:12, height:'100%', display:'flex', flexDirection:'column' }}>
@@ -382,9 +356,9 @@ function SpendingChart({ purchases }: { purchases: Purchase[] }) {
       <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:8 }}>Spend per request</div>
       <div style={{ display:'flex', alignItems:'flex-end', gap:GAP, height:BAR_H + 4, overflowX:'auto', paddingBottom:2 }}>
         {purchases.map((p, i) => {
-          const cost = p.endpoint === 'forecast' ? 0.005 : p.endpoint === 'quote' ? 0.002 : 0.001;
+          const cost = p.endpoint === 'forecast' ? 0.005 : 0.001;
           const h = Math.round((cost / 0.005) * BAR_H);
-          const color = p.endpoint === 'forecast' ? 'var(--secondary)' : p.endpoint === 'quote' ? 'var(--warning)' : 'var(--primary)';
+          const color = p.endpoint === 'forecast' ? 'var(--secondary)' : 'var(--primary)';
           return (
             <div
               key={i}
@@ -397,9 +371,9 @@ function SpendingChart({ purchases }: { purchases: Purchase[] }) {
         })}
       </div>
       <div style={{ display:'flex', gap:12, marginTop:6, flexWrap:'wrap' }}>
-        {(['weather', 'forecast', 'quote'] as Endpoint[]).filter(ep => purchases.some(p => p.endpoint === ep)).map(ep => (
+        {(['weather', 'forecast'] as Endpoint[]).filter(ep => purchases.some(p => p.endpoint === ep)).map(ep => (
           <div key={ep} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-muted)' }}>
-            <span style={{ width:8, height:8, borderRadius:2, background: ep === 'forecast' ? 'var(--secondary)' : ep === 'quote' ? 'var(--warning)' : 'var(--primary)', display:'inline-block' }} />
+            <span style={{ width:8, height:8, borderRadius:2, background: ep === 'forecast' ? 'var(--secondary)' : 'var(--primary)', display:'inline-block' }} />
             {ep}
           </div>
         ))}
@@ -470,7 +444,7 @@ function OnboardingStepper({ balance, optingIn, address }: { balance: WalletBala
 
 function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
   if (purchases.length === 0) return null;
-  const endpointPrice: Record<Endpoint, number> = { weather: 0.001, forecast: 0.005, quote: 0.002 };
+  const endpointPrice: Record<Endpoint, number> = { weather: 0.001, forecast: 0.005 };
   const totalSpent = purchases.reduce((sum, p) => sum + endpointPrice[p.endpoint], 0);
   return (
     <section style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px' }}>
@@ -502,9 +476,9 @@ function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
             onMouseEnter={e => (e.currentTarget.style.background='var(--card-hover)')}
             onMouseLeave={e => (e.currentTarget.style.background='transparent')}>
             <span style={{ color:'var(--text-muted)', fontFamily:'var(--mono)', fontSize:11 }}>{new Date(p.purchasedAt).toLocaleTimeString()}</span>
-            <span style={{ fontWeight:500 }}>/{p.endpoint} <span style={{ color: p.endpoint === 'forecast' ? 'var(--secondary)' : p.endpoint === 'quote' ? 'var(--warning)' : 'var(--primary)', fontSize:11 }}>${endpointPrice[p.endpoint].toFixed(3)}</span></span>
+            <span style={{ fontWeight:500 }}>/{p.endpoint} <span style={{ color: p.endpoint === 'forecast' ? 'var(--secondary)' : 'var(--primary)', fontSize:11 }}>${endpointPrice[p.endpoint].toFixed(3)}</span></span>
             <span style={{ color:'var(--text-dim)', fontSize:12 }}>
-              {p.weather?.city ?? p.forecast?.city ?? (p.quote ? `"${p.quote.text.slice(0,20)}…"` : '—')}
+              {p.weather?.city ?? p.forecast?.city ?? '—'}
             </span>
             <span style={{ fontFamily:'var(--mono)', fontSize:11, color: p.txid ? 'var(--text-dim)' : 'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:16 }}>{p.txid ?? '—'}</span>
             <span style={{ textAlign:'right' }}>
@@ -611,7 +585,6 @@ const data = await response.json();
         {[
           { method:'GET', path:'/weather',  price: health?.prices.weather  ?? '$0.001', desc:'Current conditions for a random city' },
           { method:'GET', path:'/forecast', price: health?.prices.forecast ?? '$0.005', desc:'7-day forecast for a random city' },
-          { method:'GET', path:'/quote',    price: health?.prices.quote    ?? '$0.002', desc:'Inspirational blockchain/tech quote' },
         ].map(ep => (
           <div key={ep.path} style={{ display:'grid', gridTemplateColumns:'auto 1fr auto', gap:12, alignItems:'center', marginBottom:10, padding:'8px 0', borderBottom:'1px solid var(--border)' }}>
             <span style={{ fontFamily:'var(--mono)', fontSize:12, padding:'4px 8px', background:'var(--primary-dim)', color:'var(--primary)', borderRadius:6, fontWeight:700 }}>{ep.method}</span>
@@ -624,8 +597,7 @@ const data = await response.json();
         ))}
         <div style={{ marginTop:4, padding:'10px 14px', background:'var(--bg)', borderRadius:8, fontSize:12, fontFamily:'var(--mono)', color:'var(--text-muted)', lineHeight:1.6 }}>
           /weather  → {'{ city, temperature, condition, humidity, paidVia, timestamp }'}<br/>
-          /forecast → {'{ city, days: [{ date, tempMax, tempMin, condition }], paidVia, timestamp }'}<br/>
-          /quote    → {'{ text, author, category, paidVia, timestamp }'}
+          /forecast → {'{ city, days: [{ date, tempMax, tempMin, condition }], paidVia, timestamp }'}
         </div>
       </div>
 
@@ -675,7 +647,7 @@ const data = await response.json();
 
 export default function App() {
   const { status: authStatus, isConnected, error: authError, connect, disconnect, getAccount } = useWeb3Auth();
-  const { events, purchaseLogs, purchases, weather, forecast, quote, loading, error: buyError, buy } = useBuyer();
+  const { events, purchaseLogs, purchases, weather, forecast, loading, error: buyError, buy } = useBuyer();
   const [address, setAddress]       = useState<string | null>(null);
   const [balance, setBalance]       = useState<WalletBalance | null>(null);
   const [optingIn, setOptingIn]     = useState(false);
@@ -740,11 +712,11 @@ export default function App() {
 
   // Celebration on new data
   useEffect(() => {
-    if (!weather && !forecast && !quote) return;
+    if (!weather && !forecast) return;
     setCelebrate(true);
     const t = setTimeout(() => setCelebrate(false), 2500);
     return () => clearTimeout(t);
-  }, [weather, forecast, quote]);
+  }, [weather, forecast]);
 
   // Total purchase timer
   useEffect(() => {
@@ -766,12 +738,11 @@ export default function App() {
   const lastEventType = events.at(-1)?.type as StepId | undefined;
   const activeStep    = loading ? lastEventType ?? null : null;
   const lastTxid      = [...purchases].at(-1)?.txid;
-  const hasResult     = weather !== null || forecast !== null || quote !== null;
+  const hasResult     = weather !== null || forecast !== null;
 
   const endpointPrice: Record<Endpoint, string> = {
     weather:  health?.prices.weather  ?? '$0.001',
     forecast: health?.prices.forecast ?? '$0.005',
-    quote:    health?.prices.quote    ?? '$0.002',
   };
 
   const walletHint = balance === null ? undefined
@@ -851,9 +822,9 @@ export default function App() {
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:16 }}>
             {/* Endpoint selector */}
             <div style={{ display:'flex', gap:8, padding:4, background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, flexWrap:'wrap', justifyContent:'center' }}>
-              {(['weather', 'forecast', 'quote'] as Endpoint[]).map(ep => (
+              {(['weather', 'forecast'] as Endpoint[]).map(ep => (
                 <button key={ep} onClick={() => setSelectedEndpoint(ep)} style={{ padding:'8px 20px', fontSize:13, fontWeight:600, borderRadius:9, border:'none', background: selectedEndpoint === ep ? 'var(--primary)' : 'transparent', color: selectedEndpoint === ep ? '#001a15' : 'var(--text-muted)', cursor:'pointer', transition:'all 0.2s' }}>
-                  {endpointIcon(ep)} {ep === 'weather' ? 'Current' : ep === 'forecast' ? '7-day' : 'Quote'}
+                  {endpointIcon(ep)} {ep === 'weather' ? 'Current' : '7-day'}
                   <span style={{ marginLeft:6, fontSize:11, opacity:0.8 }}>{endpointPrice[ep]}</span>
                 </button>
               ))}
@@ -866,7 +837,7 @@ export default function App() {
               <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', justifyContent:'center' }}>
                 <button onClick={handleBuy} disabled={buyDisabled}
                   style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: buyDisabled ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: buyDisabled ? 'var(--text-muted)' : '#001a15', cursor: buyDisabled ? 'not-allowed' : 'pointer', boxShadow: buyDisabled ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em', transition:'all 0.2s' }}>
-                  {loading ? 'Purchasing…' : optingIn ? 'Opting in to USDC…' : `Buy ${selectedEndpoint === 'forecast' ? 'Forecast' : selectedEndpoint === 'quote' ? 'Quote' : 'Weather'} — ${endpointPrice[selectedEndpoint]}`}
+                  {loading ? 'Purchasing…' : optingIn ? 'Opting in to USDC…' : `Buy ${selectedEndpoint === 'forecast' ? 'Forecast' : 'Weather'} — ${endpointPrice[selectedEndpoint]}`}
                 </button>
               </div>
             )}
@@ -933,7 +904,6 @@ export default function App() {
           </div>
           {weather  && <WeatherCard  data={weather}  celebrate={celebrate} txid={lastTxid} />}
           {forecast && <ForecastCard data={forecast} celebrate={celebrate} txid={lastTxid} />}
-          {quote    && <QuoteCard    data={quote}    celebrate={celebrate} txid={lastTxid} />}
         </div>
       </section>
 
@@ -946,11 +916,11 @@ export default function App() {
         <div className="how-grid">
           {[
             { icon:'🔐', title:'1. Connect', body:'Sign in with your email via Web3Auth. A non-custodial Algorand wallet is derived from your credentials — no seed phrase.' },
-            { icon:'📡', title:'2. Request', body:'Buyer sends a plain GET /weather, /forecast, or /quote. No auth header, no API key required.' },
+            { icon:'📡', title:'2. Request', body:'Buyer sends a plain GET /weather or /forecast. No auth header, no API key required.' },
             { icon:'🔴', title:'3. 402 + Requirements', body:'Seller returns HTTP 402 with USDC amount, Algorand address, and facilitator URL.' },
             { icon:'✍️', title:'4. Sign & Retry', body:'Buyer signs an Algorand USDC transaction and retries with the proof in the header.' },
             { icon:'⛓️', title:'5. Settlement', body:'Goplausible facilitator verifies the transaction is on-chain before the seller responds.' },
-            { icon:'✅', title:'6. Data delivered', body:'Seller sends real data — weather, forecast, or a quote. One request = one payment.' },
+            { icon:'✅', title:'6. Data delivered', body:'Seller sends real data — weather conditions or a 7-day forecast. One request = one payment.' },
           ].map(item => (
             <div key={item.title} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:20 }}>
               <div style={{ fontSize:24, marginBottom:10 }}>{item.icon}</div>

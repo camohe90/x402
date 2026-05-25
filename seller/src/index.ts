@@ -30,32 +30,10 @@ const PORT            = Number(process.env.PORT ?? 4021);
 // CHANGE 1 — set your price per request (override via env var or edit directly)
 const WEATHER_PRICE  = `$${process.env.SELLER_WEATHER_PRICE  ?? '0.001'}`;
 const FORECAST_PRICE = `$${process.env.SELLER_FORECAST_PRICE ?? '0.005'}`;
-const QUOTE_PRICE    = `$${process.env.SELLER_QUOTE_PRICE    ?? '0.002'}`;
 
 if (!SELLER_ADDRESS) {
   console.error('[seller] ERROR: SELLER_ADDRESS is required in .env');
   process.exit(1);
-}
-
-// ── Quotes dataset — replace with your own data source ───────────────────────
-
-const QUOTES = [
-  { text: 'The blockchain is an incorruptible digital ledger of economic transactions that can be programmed to record virtually everything of value.', author: 'Don & Alex Tapscott', category: 'Blockchain' },
-  { text: 'Not your keys, not your coins.', author: 'Andreas Antonopoulos', category: 'Crypto' },
-  { text: 'The root problem with conventional currency is all the trust required to make it work.', author: 'Satoshi Nakamoto', category: 'Bitcoin' },
-  { text: 'Any sufficiently advanced technology is indistinguishable from magic.', author: 'Arthur C. Clarke', category: 'Technology' },
-  { text: 'Bitcoin is a remarkable cryptographic achievement. The ability to create something not duplicable in the digital world has enormous value.', author: 'Eric Schmidt', category: 'Bitcoin' },
-  { text: 'Move fast and build consensus.', author: 'Algorand Community', category: 'Algorand' },
-  { text: 'In mathematics we trust, in cryptography we verify.', author: 'Unknown', category: 'Crypto' },
-  { text: 'Decentralization is not an end in itself — it is a means to an end: removing single points of failure and control.', author: 'Vitalik Buterin', category: 'Blockchain' },
-  { text: 'Code is law, but the law must be correct.', author: 'Lawrence Lessig', category: 'Blockchain' },
-  { text: 'The internet of money will change everything we know about financial systems.', author: 'Andreas Antonopoulos', category: 'Crypto' },
-  { text: 'First they ignore you, then they laugh at you, then they fight you, then you win.', author: 'Mahatma Gandhi', category: 'Inspiration' },
-  { text: 'We have elected to put our money and faith in a mathematical framework that is free of politics and human error.', author: 'Tyler Winklevoss', category: 'Bitcoin' },
-];
-
-function randomQuote() {
-  return QUOTES[Math.floor(Math.random() * QUOTES.length)];
 }
 
 // ── Demo data — replace with your own data source ────────────────────────────
@@ -165,15 +143,6 @@ const routes = {
     },
     description: '7-day forecast for a random city — pay-per-request via x402',
   },
-  'GET /quote': {
-    accepts: {
-      scheme:  'exact' as const,
-      network: ALGORAND_TESTNET_CAIP2 as Network,
-      payTo:   SELLER_ADDRESS as string,
-      price:   QUOTE_PRICE,
-    },
-    description: 'Inspirational quote — pay-per-request via x402',
-  },
 };
 
 // ── Boilerplate: Hono app + CORS ──────────────────────────────────────────────
@@ -219,7 +188,6 @@ app.get('/health', (c) =>
     endpoints: {
       '/weather':  { price: WEATHER_PRICE,  description: 'Current conditions for a random city' },
       '/forecast': { price: FORECAST_PRICE, description: '7-day forecast for a random city' },
-      '/quote':    { price: QUOTE_PRICE,    description: 'Inspirational quote' },
     },
   }),
 );
@@ -230,7 +198,6 @@ app.get('/', (c) =>
     endpoints: [
       { path: '/weather',  method: 'GET', price: `${WEATHER_PRICE} USDC`,  description: 'Current weather data' },
       { path: '/forecast', method: 'GET', price: `${FORECAST_PRICE} USDC`, description: '7-day forecast' },
-      { path: '/quote',    method: 'GET', price: `${QUOTE_PRICE} USDC`,    description: 'Inspirational quote' },
       { path: '/health',   method: 'GET', price: 'free',                    description: 'Health check' },
     ],
     facilitator: FACILITATOR_URL,
@@ -291,17 +258,6 @@ app.get('/forecast', async (c) => {
   }
 });
 
-app.get('/quote', (c) => {
-  const q = randomQuote();
-  return c.json({
-    text:      q.text,
-    author:    q.author,
-    category:  q.category,
-    timestamp: new Date().toISOString(),
-    paidVia:   'x402 / Algorand USDC Testnet',
-  });
-});
-
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 serve({ fetch: app.fetch, port: PORT }, () => {
@@ -311,6 +267,5 @@ serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`[seller]   Network:     ${ALGORAND_TESTNET_CAIP2}`);
   console.log(`[seller]   Facilitator: ${FACILITATOR_URL}`);
   console.log(`[seller]   /weather     ${WEATHER_PRICE} USDC`);
-  console.log(`[seller]   /forecast    ${FORECAST_PRICE} USDC`);
-  console.log(`[seller]   /quote       ${QUOTE_PRICE} USDC\n`);
+  console.log(`[seller]   /forecast    ${FORECAST_PRICE} USDC\n`);
 });

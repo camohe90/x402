@@ -2,7 +2,7 @@
 // BROWSER BUYER — x402 client hook for the React UI
 //
 // To adapt to your own seller, change:
-//   1. RESPONSE TYPES — replace WeatherData / ForecastData / QuoteData
+//   1. RESPONSE TYPES — replace WeatherData / ForecastData
 //   2. ENDPOINTS      — update the Endpoint union and buy() call paths
 //
 // The payment flow inside buy() is boilerplate — don't change it.
@@ -39,22 +39,13 @@ export interface ForecastData {
   timestamp: string;
 }
 
-export interface QuoteData {
-  text: string;
-  author: string;
-  category: string;
-  paidVia: string;
-  timestamp: string;
-}
-
 // Update this union to match your seller's endpoints
-export type Endpoint = 'weather' | 'forecast' | 'quote';
+export type Endpoint = 'weather' | 'forecast';
 
 export interface Purchase {
   endpoint: Endpoint;
   weather?: WeatherData;
   forecast?: ForecastData;
-  quote?: QuoteData;
   txid?: string;
   purchasedAt: string;
   latencyMs?: number;
@@ -83,7 +74,7 @@ export interface BuyEvent {
   payTo?: string;
   txid?: string;
   latencyMs?: number;
-  data?: WeatherData | ForecastData | QuoteData;
+  data?: WeatherData | ForecastData;
   message?: string;
 }
 
@@ -111,18 +102,17 @@ function savePurchases(purchases: Purchase[]) {
 
 export interface SellerHealth {
   online: boolean;
-  prices: { weather: string; forecast: string; quote: string };
+  prices: { weather: string; forecast: string };
 }
 
 export async function checkSellerHealth(): Promise<SellerHealth> {
   try {
     const res = await fetch(`${SELLER_URL}/health`, { signal: AbortSignal.timeout(4000) });
-    if (!res.ok) return { online: false, prices: { weather: '$0.001', forecast: '$0.005', quote: '$0.002' } };
+    if (!res.ok) return { online: false, prices: { weather: '$0.001', forecast: '$0.005' } };
     const data = await res.json() as {
       endpoints?: {
         '/weather'?:  { price: string };
         '/forecast'?: { price: string };
-        '/quote'?:    { price: string };
       };
     };
     return {
@@ -130,11 +120,10 @@ export async function checkSellerHealth(): Promise<SellerHealth> {
       prices: {
         weather:  data.endpoints?.['/weather']?.price  ?? '$0.001',
         forecast: data.endpoints?.['/forecast']?.price ?? '$0.005',
-        quote:    data.endpoints?.['/quote']?.price    ?? '$0.002',
       },
     };
   } catch {
-    return { online: false, prices: { weather: '$0.001', forecast: '$0.005', quote: '$0.002' } };
+    return { online: false, prices: { weather: '$0.001', forecast: '$0.005' } };
   }
 }
 
@@ -146,7 +135,6 @@ export function useBuyer() {
   const [purchases, setPurchases]     = useState<Purchase[]>(() => loadPurchases());
   const [weather, setWeather]         = useState<WeatherData | null>(null);
   const [forecast, setForecast]       = useState<ForecastData | null>(null);
-  const [quote, setQuote]             = useState<QuoteData | null>(null);
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
@@ -161,7 +149,6 @@ export function useBuyer() {
     setEvents([]);
     setWeather(null);
     setForecast(null);
-    setQuote(null);
 
     const signer = toClientAvmSigner(account.privateKeyBase64);
     const client = new x402Client().register(ALGORAND_TESTNET_CAIP2, new ExactAvmScheme(signer));
@@ -241,21 +228,12 @@ export function useBuyer() {
               savePurchases(next);
               return next;
             });
-          } else if (endpoint === 'forecast') {
+          } else {
             const data = await response.json() as ForecastData;
             emit({ type: 'success', endpoint, data, txid: lastTxid });
             setForecast(data);
             setPurchases(prev => {
               const next = [...prev, { endpoint, forecast: data, txid: lastTxid, purchasedAt: new Date().toISOString(), latencyMs }];
-              savePurchases(next);
-              return next;
-            });
-          } else {
-            const data = await response.json() as QuoteData;
-            emit({ type: 'success', endpoint, data, txid: lastTxid });
-            setQuote(data);
-            setPurchases(prev => {
-              const next = [...prev, { endpoint, quote: data, txid: lastTxid, purchasedAt: new Date().toISOString(), latencyMs }];
               savePurchases(next);
               return next;
             });
@@ -299,7 +277,7 @@ export function useBuyer() {
     setLoading(false);
   }, [loading, addEvent]);
 
-  return { events, purchaseLogs, purchases, weather, forecast, quote, loading, error, buy };
+  return { events, purchaseLogs, purchases, weather, forecast, loading, error, buy };
 }
 
 function pause(ms: number) {
