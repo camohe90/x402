@@ -45,6 +45,20 @@ function formatVal(v: unknown): string {
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   return String(v);
 }
+// Pagination helper — returns page indices and '…' sentinels for large page counts
+function visiblePages(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i);
+  const out: (number | '…')[] = [];
+  for (let i = 0; i < total; i++) {
+    if (i === 0 || i === total - 1 || Math.abs(i - current) <= 1) {
+      out.push(i);
+    } else if (out[out.length - 1] !== '…') {
+      out.push('…');
+    }
+  }
+  return out;
+}
+
 // Returns the first meaningful string/number value from a purchase (for the table column)
 function firstResult(data: Record<string, unknown> | undefined): string {
   if (!data) return '—';
@@ -100,7 +114,8 @@ function stepIcon(id: StepId) {
 }
 function endpointIcon(ep: Endpoint) {
   if (ep === 'forecast') return '📅';
-  return '🌡️';
+  if (ep === 'weather')  return '🌡️';
+  return '📡';
 }
 const CONDITION_ICON: Record<string, string> = {
   'Clear Sky':'☀️', 'Mainly Clear':'🌤️', 'Partly Cloudy':'⛅', 'Overcast':'☁️',
@@ -420,6 +435,11 @@ function ResultCard({ endpoint, data, celebrate, txid }: {
 }
 
 function EventLog({ events, elapsed }: { events: BuyEvent[]; elapsed: number | null }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (events.length > 0) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [events.length]);
+
   return (
     <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden', fontFamily:'var(--mono)', fontSize:12, height:'100%', display:'flex', flexDirection:'column' }}>
       <div style={{ padding:'10px 16px', borderBottom:'1px solid var(--border)', fontSize:11, fontFamily:'var(--sans)', fontWeight:600, color:'var(--text-muted)', letterSpacing:'0.08em', textTransform:'uppercase', display:'flex', alignItems:'center', gap:8 }}>
@@ -437,49 +457,50 @@ function EventLog({ events, elapsed }: { events: BuyEvent[]; elapsed: number | n
             </div>
           ))
         }
+        <div ref={bottomRef} />
       </div>
     </div>
   );
 }
 
-function SpendingChart({ purchases }: { purchases: Purchase[] }) {
+const CHART_COLORS = ['var(--primary)', 'var(--secondary)', 'var(--warning)', 'var(--success)'];
+
+function SpendingChart({ purchases, prices }: { purchases: Purchase[]; prices: Record<string, string> }) {
   if (purchases.length === 0) return null;
 
-  const weatherCount  = purchases.filter(p => p.endpoint === 'weather').length;
-  const forecastCount = purchases.filter(p => p.endpoint === 'forecast').length;
-  const weatherSpend  = weatherCount  * 0.001;
-  const forecastSpend = forecastCount * 0.005;
-  const total = weatherSpend + forecastSpend;
+  const parsePrice = (s: string) => parseFloat(s.replace('$', '')) || 0;
+  const endpoints  = [...new Set(purchases.map(p => p.endpoint))];
+  const stats      = endpoints.map((ep, i) => {
+    const count = purchases.filter(p => p.endpoint === ep).length;
+    const spend = count * parsePrice(prices[ep] ?? '$0');
+    return { ep, count, spend, color: CHART_COLORS[i % CHART_COLORS.length] };
+  });
+  const total = stats.reduce((s, e) => s + e.spend, 0);
   if (total === 0) return null;
 
-  const r = 38;
-  const cx = 56;
-  const cy = 56;
-  const circ = 2 * Math.PI * r;
-  const forecastArc = (forecastSpend / total) * circ;
-  const weatherArc  = (weatherSpend  / total) * circ;
-  const avg = total / purchases.length;
+  const r = 38, cx = 56, cy = 56, circ = 2 * Math.PI * r;
+  let cumOffset = 0;
+  const arcs = stats.map(s => {
+    const arc = (s.spend / total) * circ;
+    const dashOffset = -cumOffset;
+    cumOffset += arc;
+    return { ...s, arc, dashOffset };
+  });
 
   return (
     <div style={{ display:'flex', alignItems:'center', gap:28, padding:'20px 0', borderBottom:'1px solid var(--border)', marginBottom:20 }}>
       <svg width={112} height={112} viewBox="0 0 112 112" style={{ flexShrink:0 }}>
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={14} />
-        {forecastCount > 0 && (
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--secondary)" strokeWidth={14}
-            strokeDasharray={`${forecastArc} ${circ}`} strokeDashoffset={0}
+        {arcs.map(({ ep, arc, dashOffset, color }) => arc > 0 ? (
+          <circle key={ep} cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={14}
+            strokeDasharray={`${arc} ${circ}`} strokeDashoffset={dashOffset}
             transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" />
-        )}
-        {weatherCount > 0 && (
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--primary)" strokeWidth={14}
-            strokeDasharray={`${weatherArc} ${circ}`} strokeDashoffset={-forecastArc}
-            transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" />
-        )}
+        ) : null)}
         <text x={cx} y={cy - 7} textAnchor="middle" fill="var(--text)" fontSize={13} fontWeight={700} fontFamily="var(--mono)">${total.toFixed(3)}</text>
         <text x={cx} y={cy + 9} textAnchor="middle" fill="var(--text-muted)" fontSize={10} fontFamily="var(--sans)">USDC spent</text>
       </svg>
 
       <div style={{ display:'flex', flexDirection:'column', gap:14, flex:1 }}>
-        {/* Summary stats */}
         <div style={{ display:'flex', gap:20, flexWrap:'wrap' }}>
           <div>
             <div style={{ fontSize:18, fontWeight:700, fontFamily:'var(--mono)', color:'var(--text)' }}>{purchases.length}</div>
@@ -490,25 +511,17 @@ function SpendingChart({ purchases }: { purchases: Purchase[] }) {
             <div style={{ fontSize:11, color:'var(--text-muted)' }}>total USDC</div>
           </div>
           <div>
-            <div style={{ fontSize:18, fontWeight:700, fontFamily:'var(--mono)', color:'var(--text-dim)' }}>${avg.toFixed(3)}</div>
+            <div style={{ fontSize:18, fontWeight:700, fontFamily:'var(--mono)', color:'var(--text-dim)' }}>${(total / purchases.length).toFixed(3)}</div>
             <div style={{ fontSize:11, color:'var(--text-muted)' }}>avg per call</div>
           </div>
         </div>
-
-        {/* Per-endpoint breakdown */}
         <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
-          {weatherCount > 0 && (
-            <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-              <span style={{ width:8, height:8, borderRadius:2, background:'var(--primary)', display:'inline-block', flexShrink:0 }} />
-              <span style={{ fontSize:12, color:'var(--text-muted)' }}>Weather — {weatherCount} call{weatherCount !== 1 ? 's' : ''} · ${weatherSpend.toFixed(3)}</span>
+          {stats.map(({ ep, count, spend, color }) => count > 0 ? (
+            <div key={ep} style={{ display:'flex', alignItems:'center', gap:7 }}>
+              <span style={{ width:8, height:8, borderRadius:2, background:color, display:'inline-block', flexShrink:0 }} />
+              <span style={{ fontSize:12, color:'var(--text-muted)' }}>{ep} — {count} call{count !== 1 ? 's' : ''} · ${spend.toFixed(3)}</span>
             </div>
-          )}
-          {forecastCount > 0 && (
-            <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-              <span style={{ width:8, height:8, borderRadius:2, background:'var(--secondary)', display:'inline-block', flexShrink:0 }} />
-              <span style={{ fontSize:12, color:'var(--text-muted)' }}>Forecast — {forecastCount} call{forecastCount !== 1 ? 's' : ''} · ${forecastSpend.toFixed(3)}</span>
-            </div>
-          )}
+          ) : null)}
         </div>
       </div>
     </div>
@@ -593,7 +606,7 @@ function PurchaseHistory({ purchases, prices }: { purchases: Purchase[]; prices:
     <section style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px' }}>
       <div style={{ fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:0 }}>Purchase History</div>
 
-      <SpendingChart purchases={purchases} />
+      <SpendingChart purchases={purchases} prices={prices} />
 
       <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden' }}>
         <div className="purchase-grid purchase-header" style={{ padding:'10px 20px', borderBottom:'1px solid var(--border)', fontSize:11, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)' }}>
@@ -626,18 +639,18 @@ function PurchaseHistory({ purchases, prices }: { purchases: Purchase[]; prices:
               {from}–{to} of {sorted.length}
             </span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              {Array.from({ length: pages }, (_, i) => (
-                <button key={i} onClick={() => setPage(i)}
-                  style={{ width:28, height:28, borderRadius:6, border:'1px solid', cursor:'pointer', fontSize:11, fontWeight:600, transition:'all 0.15s',
-                    borderColor: i === safePage ? 'var(--primary)' : 'var(--border)',
-                    background:  i === safePage ? 'var(--primary-dim)' : 'transparent',
-                    color:       i === safePage ? 'var(--primary)'     : 'var(--text-muted)',
-                  }}>
-                  {i + 1}
-                </button>
-              ))}
               <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0}
-                style={{ width:28, height:28, borderRadius:6, border:'1px solid var(--border)', background:'transparent', cursor: safePage === 0 ? 'not-allowed' : 'pointer', color: safePage === 0 ? 'var(--border)' : 'var(--text-muted)', fontSize:14, marginLeft:4 }}>‹</button>
+                style={{ width:28, height:28, borderRadius:6, border:'1px solid var(--border)', background:'transparent', cursor: safePage === 0 ? 'not-allowed' : 'pointer', color: safePage === 0 ? 'var(--border)' : 'var(--text-muted)', fontSize:14 }}>‹</button>
+              {visiblePages(safePage, pages).map((pg, i) =>
+                typeof pg === 'number'
+                  ? <button key={pg} onClick={() => setPage(pg)}
+                      style={{ width:28, height:28, borderRadius:6, border:'1px solid', cursor:'pointer', fontSize:11, fontWeight:600, transition:'all 0.15s',
+                        borderColor: pg === safePage ? 'var(--primary)' : 'var(--border)',
+                        background:  pg === safePage ? 'var(--primary-dim)' : 'transparent',
+                        color:       pg === safePage ? 'var(--primary)'     : 'var(--text-muted)',
+                      }}>{pg + 1}</button>
+                  : <span key={`e${i}`} style={{ width:20, textAlign:'center', color:'var(--text-muted)', fontSize:12, userSelect:'none' }}>…</span>
+              )}
               <button onClick={() => setPage(p => Math.min(pages - 1, p + 1))} disabled={safePage === pages - 1}
                 style={{ width:28, height:28, borderRadius:6, border:'1px solid var(--border)', background:'transparent', cursor: safePage === pages - 1 ? 'not-allowed' : 'pointer', color: safePage === pages - 1 ? 'var(--border)' : 'var(--text-muted)', fontSize:14 }}>›</button>
             </div>
@@ -794,7 +807,7 @@ const data = await response.json();
         {/* Segmented control */}
         <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:8 }}>
           <span style={{ fontSize:11, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap' }}>View code for</span>
-        <div style={{ display:'inline-flex', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:10, padding:4, gap:4 }}>
+          <div style={{ display:'inline-flex', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:10, padding:4, gap:4 }}>
           {([
             { id:'seller', label:'Seller', file:'seller/src/index.ts', color:'var(--secondary)', dim:'var(--secondary-dim)' },
             { id:'client', label:'Client', file:'buyer/src/buyer.ts',  color:'var(--primary)',   dim:'var(--primary-dim)'   },
@@ -821,7 +834,7 @@ const data = await response.json();
               </button>
             );
           })}
-        </div>
+          </div>
         </div>
         <CodeBlock code={activeTab === 'seller' ? sellerCode : clientCode} />
       </div>
@@ -838,7 +851,10 @@ const data = await response.json();
             { emoji:'🎵', title:'Media streaming',     body:'Pay-per-minute audio/video without subscriptions' },
             { emoji:'📝', title:'Document generation', body:'PDFs, reports, or summaries billed per generation' },
           ].map(item => (
-            <div key={item.title} style={{ padding:14, background:'var(--bg)', borderRadius:10, border:'1px solid var(--border)' }}>
+            <div key={item.title}
+              style={{ padding:14, background:'var(--bg)', borderRadius:10, border:'1px solid var(--border)', transition:'border-color 0.2s, transform 0.2s', cursor:'default' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor='var(--primary)55'; e.currentTarget.style.transform='translateY(-2px)'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.transform='translateY(0)'; }}>
               <div style={{ fontSize:20, marginBottom:6 }}>{item.emoji}</div>
               <div style={{ fontWeight:600, fontSize:13, marginBottom:4 }}>{item.title}</div>
               <div style={{ fontSize:12, color:'var(--text-muted)', lineHeight:1.5 }}>{item.body}</div>
@@ -866,7 +882,8 @@ export default function App() {
   const [theme, setTheme]           = useState<'dark' | 'light'>(() =>
     (localStorage.getItem('x402-theme') as 'dark' | 'light') ?? 'dark'
   );
-  const startTimeRef = useRef<number | null>(null);
+  const startTimeRef  = useRef<number | null>(null);
+  const resultCardRef = useRef<HTMLDivElement>(null);
 
   // Apply theme to html element and persist
   useEffect(() => {
@@ -917,12 +934,13 @@ export default function App() {
     return () => clearTimeout(t);
   }, [purchases.length, address]);
 
-  // Celebration on new data
+  // Celebration on new data + scroll result into view
   useEffect(() => {
     if (!result) return;
     setCelebrate(true);
-    const t = setTimeout(() => setCelebrate(false), 2500);
-    return () => clearTimeout(t);
+    const t1 = setTimeout(() => setCelebrate(false), 2500);
+    const t2 = setTimeout(() => resultCardRef.current?.scrollIntoView({ behavior:'smooth', block:'nearest' }), 150);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [result]);
 
   // Total purchase timer
@@ -961,7 +979,7 @@ export default function App() {
     if (account) buy(account, selectedEndpoint);
   }, [getAccount, buy, selectedEndpoint]);
 
-  const buyDisabled = loading || optingIn || (balance !== null && balance.usdc < 0.001);
+  const buyDisabled = optingIn || (balance !== null && balance.usdc < 0.001);
 
   return (
     <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column' }}>
@@ -1028,7 +1046,7 @@ export default function App() {
             <div style={{ display:'flex', gap:8, padding:4, background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, flexWrap:'wrap', justifyContent:'center' }}>
               {(['weather', 'forecast'] as Endpoint[]).map(ep => (
                 <button key={ep} onClick={() => setSelectedEndpoint(ep)} style={{ padding:'8px 20px', fontSize:13, fontWeight:600, borderRadius:9, border:'none', background: selectedEndpoint === ep ? 'var(--primary)' : 'transparent', color: selectedEndpoint === ep ? '#001a15' : 'var(--text-muted)', cursor:'pointer', transition:'all 0.2s' }}>
-                  {endpointIcon(ep)} {ep === 'weather' ? 'Current' : '7-day'}
+                  {endpointIcon(ep)} {ep === 'weather' ? 'Weather' : 'Forecast'}
                   <span style={{ marginLeft:6, fontSize:11, opacity:0.8 }}>{endpointPrice[ep]}</span>
                 </button>
               ))}
@@ -1039,8 +1057,9 @@ export default function App() {
               <OnboardingStepper balance={balance} optingIn={optingIn} address={address} />
             ) : (
               <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', justifyContent:'center' }}>
-                <button onClick={handleBuy} disabled={buyDisabled}
-                  style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: buyDisabled ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: buyDisabled ? 'var(--text-muted)' : '#001a15', cursor: buyDisabled ? 'not-allowed' : 'pointer', boxShadow: buyDisabled ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em', transition:'all 0.2s' }}>
+                <button onClick={handleBuy} disabled={loading || buyDisabled}
+                  style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: buyDisabled ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: buyDisabled ? 'var(--text-muted)' : '#001a15', cursor: (loading || buyDisabled) ? 'not-allowed' : 'pointer', boxShadow: buyDisabled ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em', transition:'all 0.2s', display:'flex', alignItems:'center', gap:10 }}>
+                  {loading && <span style={{ width:14, height:14, border:'2px solid currentColor', borderTopColor:'transparent', borderRadius:'50%', animation:'spin 0.7s linear infinite', opacity:0.8, flexShrink:0 }} />}
                   {loading ? 'Purchasing…' : optingIn ? 'Opting in to USDC…' : `Buy /${selectedEndpoint} — ${endpointPrice[selectedEndpoint] ?? ''}`}
                 </button>
               </div>
@@ -1104,7 +1123,9 @@ export default function App() {
         <div className={hasResult ? 'demo-grid-split' : 'demo-grid-full'} style={{ gap:16, minHeight:240 }}>
           <EventLog events={events} elapsed={elapsed} />
           {result && lastEndpoint && (
-            <ResultCard endpoint={lastEndpoint} data={result} celebrate={celebrate} txid={lastTxid} />
+            <div ref={resultCardRef}>
+              <ResultCard endpoint={lastEndpoint} data={result} celebrate={celebrate} txid={lastTxid} />
+            </div>
           )}
         </div>
       </section>
@@ -1124,7 +1145,10 @@ export default function App() {
             { icon:'⛓️', title:'5. Settlement', body:'Goplausible facilitator verifies the transaction is on-chain before the seller responds.' },
             { icon:'✅', title:'6. Data delivered', body:'Seller sends real data — weather conditions or a 7-day forecast. One request = one payment.' },
           ].map(item => (
-            <div key={item.title} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:20 }}>
+            <div key={item.title}
+              style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:20, transition:'border-color 0.2s, transform 0.2s', cursor:'default' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor='var(--primary)55'; e.currentTarget.style.transform='translateY(-2px)'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.transform='translateY(0)'; }}>
               <div style={{ fontSize:24, marginBottom:10 }}>{item.icon}</div>
               <div style={{ fontWeight:600, marginBottom:6, fontSize:14 }}>{item.title}</div>
               <div style={{ color:'var(--text-muted)', fontSize:13, lineHeight:1.6 }}>{item.body}</div>
@@ -1140,15 +1164,28 @@ export default function App() {
       <footer style={{ borderTop:'1px solid var(--border)', padding:'24px 40px', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12, color:'var(--text-muted)', fontSize:13 }}>
         <Logo />
         <div style={{ display:'flex', gap:16, flexWrap:'wrap', alignItems:'center' }}>
-          <span>x402 Protocol v2</span><span>·</span>
-          <span>Algorand Testnet</span><span>·</span>
-          <span>USDC ASA 10458941</span><span>·</span>
-          <a href={GITHUB_URL} target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'none', fontWeight:600 }}>GitHub ↗</a>
+          {[
+            { label:'ALGO faucet', href:'https://bank.testnet.algorand.network' },
+            { label:'USDC faucet', href:'https://faucet.circle.com' },
+            { label:'Explorer',    href:'https://lora.algokit.io/testnet' },
+            { label:'Facilitator', href:'https://facilitator.goplausible.xyz' },
+            { label:'GitHub',      href:GITHUB_URL },
+          ].map(({ label, href }) => (
+            <a key={label} href={href} target="_blank" rel="noreferrer"
+              style={{ color:'var(--text-muted)', textDecoration:'none', transition:'color 0.2s' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
+              {label} ↗
+            </a>
+          ))}
+          <span style={{ color:'var(--border)' }}>·</span>
+          <span>x402 v2 · Algorand Testnet</span>
         </div>
       </footer>
 
       <style>{`
         @keyframes pulse    { 0%,100%{opacity:1;transform:scale(1)}   50%{opacity:0.7;transform:scale(0.95)} }
+        @keyframes spin     { to { transform: rotate(360deg); } }
         @keyframes fadeIn   { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
         @keyframes popIn    { from{opacity:0;transform:scale(0.97) translateY(-4px)} to{opacity:1;transform:scale(1) translateY(0)} }
         @keyframes stepDone { 0%{transform:scale(1)} 40%{transform:scale(1.15)} 100%{transform:scale(1)} }
