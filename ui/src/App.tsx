@@ -644,11 +644,6 @@ export default function App() {
                 style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: buyDisabled ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: buyDisabled ? 'var(--text-muted)' : '#001a15', cursor: buyDisabled ? 'not-allowed' : 'pointer', boxShadow: buyDisabled ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em', transition:'all 0.2s' }}>
                 {loading ? '⏳  Purchasing…' : optingIn ? '⏳  Opting in to USDC…' : `⚡  Buy ${selectedEndpoint === 'forecast' ? 'Forecast' : 'Weather'} — ${price}`}
               </button>
-              {totalSpent && !loading && (
-                <div style={{ padding:'8px 14px', background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:10, fontSize:13, fontWeight:600, color:'var(--success)', fontFamily:'var(--mono)' }}>
-                  {totalSpent} spent
-                </div>
-              )}
             </div>
 
             {walletHint && (
