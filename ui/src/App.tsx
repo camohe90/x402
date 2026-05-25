@@ -3,7 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useWeb3Auth, fetchWalletBalance, optInToUSDC } from './hooks/useWeb3Auth';
 import type { WalletBalance } from './hooks/useWeb3Auth';
 import { useBuyer, checkSellerHealth } from './hooks/useBuyer';
-import type { BuyEvent, Purchase, WeatherData, ForecastData, Endpoint, SellerHealth, PurchaseLog } from './hooks/useBuyer';
+import type { BuyEvent, Purchase, WeatherData, ForecastData, Endpoint, SellerHealth } from './hooks/useBuyer';
 
 // ── Step definitions ──────────────────────────────────────────────────────────
 
@@ -310,37 +310,6 @@ function EventLog({ events, elapsed }: { events: BuyEvent[]; elapsed: number | n
           ))
         }
       </div>
-    </div>
-  );
-}
-
-function PastLogsAccordion({ logs }: { logs: PurchaseLog[] }) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  if (logs.length === 0) return null;
-  return (
-    <div style={{ marginTop:12 }}>
-      <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:8, padding:'0 2px' }}>Purchase log history</div>
-      {logs.map(log => (
-        <div key={log.id} style={{ marginBottom:4, border:'1px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
-          <button
-            onClick={() => setOpenId(openId === log.id ? null : log.id)}
-            style={{ width:'100%', padding:'8px 12px', display:'flex', alignItems:'center', gap:8, background:'var(--card)', border:'none', cursor:'pointer', textAlign:'left', color:'var(--text-dim)' }}>
-            <span style={{ fontSize:11 }}>{endpointIcon(log.endpoint)}</span>
-            <span style={{ fontSize:12, fontWeight:600, flex:1 }}>/{log.endpoint}</span>
-            <span style={{ fontSize:11, color:'var(--text-muted)' }}>{new Date(log.at).toLocaleTimeString()}</span>
-            <span style={{ fontSize:10, color:'var(--text-muted)', marginLeft:8 }}>{openId === log.id ? '▲' : '▼'}</span>
-          </button>
-          {openId === log.id && (
-            <div style={{ padding:'8px 12px 12px', background:'var(--bg)', fontFamily:'var(--mono)', fontSize:11 }}>
-              {log.events.map((e, i) => (
-                <div key={i} style={{ padding:'3px 0 3px 10px', color: eventColor(e.type), borderLeft:`2px solid ${eventColor(e.type)}`, marginLeft:4, marginBottom:2 }}>
-                  {eventLabel(e)}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
     </div>
   );
 }
@@ -676,7 +645,7 @@ const data = await response.json();
 
 export default function App() {
   const { status: authStatus, isConnected, error: authError, connect, disconnect, getAccount } = useWeb3Auth();
-  const { events, purchaseLogs, purchases, weather, forecast, loading, error: buyError, buy } = useBuyer();
+  const { events, purchases, weather, forecast, loading, error: buyError, buy } = useBuyer();
   const [address, setAddress]       = useState<string | null>(null);
   const [balance, setBalance]       = useState<WalletBalance | null>(null);
   const [optingIn, setOptingIn]     = useState(false);
@@ -927,10 +896,7 @@ export default function App() {
       {/* Demo Panel */}
       <section className="content-section" style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px', boxSizing:'border-box' }}>
         <div className={hasResult ? 'demo-grid-split' : 'demo-grid-full'} style={{ gap:16, minHeight:240 }}>
-          <div style={{ display:'flex', flexDirection:'column', gap:0, minHeight:240 }}>
-            <EventLog events={events} elapsed={elapsed} />
-            <PastLogsAccordion logs={purchaseLogs} />
-          </div>
+          <EventLog events={events} elapsed={elapsed} />
           {weather  && <WeatherCard  data={weather}  celebrate={celebrate} txid={lastTxid} />}
           {forecast && <ForecastCard data={forecast} celebrate={celebrate} txid={lastTxid} />}
         </div>
