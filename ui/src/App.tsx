@@ -999,6 +999,10 @@ export default function App() {
   const { events, purchases, result, lastEndpoint, loading, error: buyError, buy } = useBuyer();
   const [address, setAddress]       = useState<string | null>(null);
   const [balance, setBalance]       = useState<WalletBalance | null>(null);
+  // Guard: never overwrite a valid balance with a network-error zero-state
+  const guardedSetBalance = useCallback((newBal: WalletBalance) => {
+    setBalance(prev => prev?.accountExists && !newBal.accountExists ? prev : newBal);
+  }, []);
   const [optingIn, setOptingIn]     = useState(false);
   const [heroCopied, setHeroCopied] = useState(false);
   const [celebrate, setCelebrate]   = useState(false);
@@ -1023,22 +1027,22 @@ export default function App() {
       getAccount().then(acc => {
         const addr = acc?.address ?? null;
         setAddress(addr);
-        if (addr) fetchWalletBalance(addr).then(setBalance);
+        if (addr) fetchWalletBalance(addr).then(guardedSetBalance);
       });
     } else {
       setAddress(null);
       setBalance(null);
     }
-  }, [isConnected, getAccount]);
+  }, [isConnected, getAccount, guardedSetBalance]);
 
   // Balance auto-poll every 10s when connected
   useEffect(() => {
     if (!isConnected || !address) return;
     const interval = setInterval(() => {
-      fetchWalletBalance(address).then(setBalance);
+      fetchWalletBalance(address).then(guardedSetBalance);
     }, 10_000);
     return () => clearInterval(interval);
-  }, [isConnected, address]);
+  }, [isConnected, address, guardedSetBalance]);
 
   // Auto opt-in to USDC when wallet has enough ALGO
   useEffect(() => {
@@ -1047,18 +1051,18 @@ export default function App() {
     getAccount().then(acc => {
       if (!acc) { setOptingIn(false); return; }
       optInToUSDC(acc.address, acc.privateKeyBase64)
-        .then(() => fetchWalletBalance(address).then(setBalance))
+        .then(() => fetchWalletBalance(address).then(guardedSetBalance))
         .catch(console.error)
         .finally(() => setOptingIn(false));
     });
-  }, [balance, address, optingIn, getAccount]);
+  }, [balance, address, optingIn, getAccount, guardedSetBalance]);
 
   // Refresh balance after each purchase
   useEffect(() => {
     if (purchases.length === 0 || !address) return;
-    const t = setTimeout(() => fetchWalletBalance(address).then(setBalance), 2500);
+    const t = setTimeout(() => fetchWalletBalance(address).then(guardedSetBalance), 2500);
     return () => clearTimeout(t);
-  }, [purchases.length, address]);
+  }, [purchases.length, address, guardedSetBalance]);
 
   // Celebration on new data
   useEffect(() => {

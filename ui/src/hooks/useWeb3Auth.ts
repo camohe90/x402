@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Web3Auth } from '@web3auth/modal';
 import { CHAIN_NAMESPACES, WEB3AUTH_NETWORK, CommonPrivateKeyProvider } from '@web3auth/no-modal';
 import type { IProvider } from '@web3auth/no-modal';
@@ -191,7 +191,7 @@ export function useWeb3Auth() {
     fresh.init().catch(() => {}).finally(() => setStatus('ready'));
   };
 
-  const getAccount = async (): Promise<AlgorandAccount | null> => {
+  const getAccount = useCallback(async (): Promise<AlgorandAccount | null> => {
     if (!provider) return null;
     try {
       const privateKeyHex = await provider.request({ method: 'private_key' }) as string;
@@ -204,7 +204,7 @@ export function useWeb3Auth() {
     } catch {
       return null;
     }
-  };
+  }, [provider]);
 
   return {
     status,
