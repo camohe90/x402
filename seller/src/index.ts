@@ -10,21 +10,35 @@ import { HTTPFacilitatorClient } from '@x402/core/server';
 import { ExactAvmScheme } from '@x402/avm/exact/server';
 import { ALGORAND_TESTNET_CAIP2 } from '@x402/avm';
 
-// ── Environment ──────────────────────────────────────────────────────────────
+// =============================================================================
+// SELLER — x402 Resource Server
+//
+// To build your own paid API, change three things:
+//   1. PRICES      — set your price per request below (or via env vars)
+//   2. ROUTES      — rename 'GET /weather' to your endpoint(s)
+//   3. HANDLERS    — replace the weather/forecast logic with your own data
+//
+// Everything else (facilitator setup, middleware, CORS) is boilerplate.
+// =============================================================================
 
-const SELLER_ADDRESS  = process.env.SELLER_ADDRESS;
+// ── Environment ───────────────────────────────────────────────────────────────
+
+const SELLER_ADDRESS  = process.env.SELLER_ADDRESS;        // your Algorand address
 const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitator.goplausible.xyz';
 const PORT            = Number(process.env.PORT ?? 4021);
-// Prices can be overridden via env — must be a plain decimal (e.g. "0.001")
+
+// CHANGE 1 — set your price per request (override via env var or edit directly)
 const WEATHER_PRICE  = `$${process.env.SELLER_WEATHER_PRICE  ?? '0.001'}`;
 const FORECAST_PRICE = `$${process.env.SELLER_FORECAST_PRICE ?? '0.005'}`;
 
 if (!SELLER_ADDRESS) {
-  console.error('[seller] ERROR: SELLER_ADDRESS is required.');
+  console.error('[seller] ERROR: SELLER_ADDRESS is required in .env');
   process.exit(1);
 }
 
-// ── Cities & weather helpers ──────────────────────────────────────────────────
+// ── Demo data — replace with your own data source ────────────────────────────
+// This section fetches real weather from Open-Meteo (free, no API key).
+// Swap it out for whatever your API sells: AI responses, stock prices, etc.
 
 const CITIES = [
   { city: 'New York',      lat: 40.7128,  lon: -74.0060  },
@@ -34,7 +48,7 @@ const CITIES = [
   { city: 'Austin',        lat: 30.2672,  lon: -97.7431  },
 ];
 
-// WMO weather interpretation codes → human-readable condition
+// WMO weather code → human-readable label (standard meteorology codes)
 const WMO: Record<number, string> = {
   0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
   45: 'Foggy', 48: 'Foggy',
@@ -77,7 +91,9 @@ async function fetchForecast(lat: number, lon: number) {
   return data.daily;
 }
 
-// ── Facilitator with retry ────────────────────────────────────────────────────
+// ── Boilerplate: facilitator client with retry ────────────────────────────────
+// The facilitator verifies and settles payments on-chain. You don't need to
+// change this — just make sure FACILITATOR_URL is set in your .env.
 
 async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 500): Promise<T> {
   try {
@@ -91,7 +107,6 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 500): 
 
 const baseFacilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
 
-// Wrap verify/settle with retry — network blips to the facilitator won't fail the payment
 const facilitatorClient = {
   url: baseFacilitator.url,
   getSupported: () => baseFacilitator.getSupported(),
@@ -101,33 +116,37 @@ const facilitatorClient = {
     withRetry(() => baseFacilitator.settle(...args)),
 };
 
-// ── x402 Setup ────────────────────────────────────────────────────────────────
+// ── Boilerplate: x402 setup ───────────────────────────────────────────────────
+// Registers the Algorand payment scheme. No changes needed here.
 
 const resourceServer = new x402ResourceServer(facilitatorClient)
   .register(ALGORAND_TESTNET_CAIP2, new ExactAvmScheme());
 
+// CHANGE 2 — rename the routes and set the price for each endpoint.
+// The key format is 'METHOD /path'. Add as many routes as you need.
 const routes = {
   'GET /weather': {
     accepts: {
-      scheme: 'exact' as const,
+      scheme:  'exact' as const,
       network: ALGORAND_TESTNET_CAIP2 as Network,
-      payTo: SELLER_ADDRESS as string,
-      price: WEATHER_PRICE,
+      payTo:   SELLER_ADDRESS as string,
+      price:   WEATHER_PRICE,
     },
     description: 'Current weather for a random city — pay-per-request via x402',
   },
   'GET /forecast': {
     accepts: {
-      scheme: 'exact' as const,
+      scheme:  'exact' as const,
       network: ALGORAND_TESTNET_CAIP2 as Network,
-      payTo: SELLER_ADDRESS as string,
-      price: FORECAST_PRICE,
+      payTo:   SELLER_ADDRESS as string,
+      price:   FORECAST_PRICE,
     },
     description: '7-day forecast for a random city — pay-per-request via x402',
   },
 };
 
-// ── Hono App ──────────────────────────────────────────────────────────────────
+// ── Boilerplate: Hono app + CORS ──────────────────────────────────────────────
+// Allows requests from localhost and Vercel. Add your own origin to UI_ORIGIN.
 
 const app = new Hono();
 
@@ -143,10 +162,11 @@ app.use(cors({
     }
     return null as unknown as string;
   },
+  // These headers must be exposed so the browser can read payment info
   exposeHeaders: ['PAYMENT-REQUIRED', 'payment-required', 'PAYMENT-RESPONSE', 'X-PAYMENT-RESPONSE'],
 }));
 
-// Request logger — logs method, path, status, and whether it was a paid request
+// Logs every request — 💰 marks paid requests
 app.use(async (c, next) => {
   const start = Date.now();
   await next();
@@ -155,6 +175,7 @@ app.use(async (c, next) => {
   console.log(`[seller] ${paid} ${c.req.method} ${c.req.path} → ${c.res.status} (${ms}ms)`);
 });
 
+// Boilerplate: attaches the x402 payment gate to all routes defined above
 app.use(paymentMiddleware(routes, resourceServer));
 
 // ── Free endpoints ────────────────────────────────────────────────────────────
@@ -185,7 +206,9 @@ app.get('/', (c) =>
   }),
 );
 
-// ── Paid endpoints ────────────────────────────────────────────────────────────
+// ── CHANGE 3 — paid handlers ──────────────────────────────────────────────────
+// These run ONLY after a valid payment has been confirmed by the facilitator.
+// Replace the weather logic with whatever your API sells.
 
 app.get('/weather', async (c) => {
   const { city, lat, lon } = randomCity();
@@ -200,7 +223,7 @@ app.get('/weather', async (c) => {
       paidVia:     'x402 / Algorand USDC Testnet',
     });
   } catch (err) {
-    // Open-Meteo unavailable — return static fallback so the payment isn't wasted
+    // Fallback if Open-Meteo is unavailable — buyer already paid, so return something
     console.error('[seller] Open-Meteo error, using fallback:', err);
     return c.json({
       city,

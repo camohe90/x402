@@ -351,30 +351,38 @@ function CodeBlock({ code }: { code: string }) {
 
 function BuildOnThis({ health }: { health: SellerHealth | null }) {
   const sellerCode = `
-// seller/src/index.ts — protect any endpoint in ~3 lines
+// 1. Declare price + who gets paid (your Algorand address)
 const routes = {
   'GET /your-endpoint': {
     accepts: {
-      scheme: 'exact',
+      scheme:  'exact',
       network: ALGORAND_TESTNET_CAIP2,
-      payTo: process.env.SELLER_ADDRESS,
-      price: '$0.001',   // set via SELLER_WEATHER_PRICE env var
+      payTo:   process.env.SELLER_ADDRESS,
+      price:   '$0.001',  // any USD amount
     },
   },
 };
+
+// 2. Add the middleware — one line protects all routes above
 app.use(paymentMiddleware(routes, resourceServer));
+
+// 3. Write your handler — it only runs after payment is confirmed
 app.get('/your-endpoint', (c) => c.json({ data: 'your data here' }));
 `.trim();
 
   const clientCode = `
-// ui/src/hooks/useBuyer.ts — pay for any x402 endpoint
-const signer = toClientAvmSigner(account.privateKeyBase64);
+// 1. Create a signer from your Algorand private key
+const account = algosdk.mnemonicToSecretKey(process.env.MNEMONIC);
+const signer  = toClientAvmSigner(
+  Buffer.from(account.sk).toString('base64')
+);
+
+// 2. Build an x402 client with the Algorand payment scheme
 const client = new x402Client()
   .register(ALGORAND_TESTNET_CAIP2, new ExactAvmScheme(signer));
 
+// 3. Wrap fetch — 402 → sign → retry happens automatically
 const fetchWithPayment = wrapFetchWithPayment(fetch, client);
-
-// Payment is handled automatically when the server returns 402
 const response = await fetchWithPayment('https://your-api.com/endpoint');
 const data = await response.json();
 `.trim();
@@ -437,7 +445,7 @@ const data = await response.json();
         <div>
           <div style={{ fontSize:12, fontWeight:600, color:'var(--text-muted)', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
             <span style={{ padding:'2px 8px', background:'var(--primary-dim)', color:'var(--primary)', borderRadius:6, fontSize:11 }}>Client</span>
-            ui/src/hooks/useBuyer.ts
+            buyer/src/buyer.ts
           </div>
           <CodeBlock code={clientCode} />
         </div>
