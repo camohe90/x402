@@ -676,6 +676,137 @@ function CodeBlock({ code }: { code: string }) {
   );
 }
 
+// ── EndpointCard ─────────────────────────────────────────────────────────────
+// A single row in the Live Endpoints panel.  Shows: method badge, path (with
+// copy URL button), description, price, JSON example, and a collapsible cURL
+// snippet — everything a developer needs to call the endpoint immediately.
+
+function EndpointCard({
+  path, price, desc, example, sellerUrl, last,
+}: {
+  path: string;
+  price: string;
+  desc: string;
+  example: Record<string, unknown>;
+  sellerUrl: string;
+  last: boolean;
+}) {
+  const [copiedUrl,  setCopiedUrl]  = useState(false);
+  const [copiedCurl, setCopiedCurl] = useState(false);
+  const [curlOpen,   setCurlOpen]   = useState(false);
+
+  const fullUrl  = `${sellerUrl}${path}`;
+  const curlCmd  = `curl "${fullUrl}"\n# → HTTP 402 with payment requirements\n# Retry with X-PAYMENT header after signing`;
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(fullUrl);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 1500);
+  };
+  const copyCurl = () => {
+    navigator.clipboard.writeText(`curl "${fullUrl}"`);
+    setCopiedCurl(true);
+    setTimeout(() => setCopiedCurl(false), 1500);
+  };
+
+  return (
+    <div style={{ background:'var(--bg)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', marginBottom: last ? 0 : 8 }}>
+
+      {/* ── Row: method · path · copy · desc · price ─────────────────── */}
+      <div style={{ display:'grid', gridTemplateColumns:'auto 1fr auto', gap:10, alignItems:'center', padding:'10px 12px' }}>
+
+        {/* Method badge */}
+        <span style={{ fontFamily:'var(--mono)', fontSize:11, padding:'3px 7px', background:'var(--primary-dim)', color:'var(--primary)', borderRadius:5, fontWeight:700, letterSpacing:'0.04em', flexShrink:0 }}>
+          GET
+        </span>
+
+        {/* Path + desc */}
+        <div style={{ minWidth:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+            <span style={{ fontFamily:'var(--mono)', fontSize:13, fontWeight:600, color:'var(--primary)' }}>{path}</span>
+            {/* Copy URL button */}
+            <button
+              onClick={copyUrl}
+              title={copiedUrl ? 'Copied!' : `Copy ${fullUrl}`}
+              style={{ padding:'1px 7px', fontSize:10, borderRadius:5, border:'1px solid var(--border)', background:'transparent', color: copiedUrl ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer', transition:'color 0.2s, border-color 0.2s', flexShrink:0 }}>
+              {copiedUrl ? '✓ copied' : 'copy url'}
+            </button>
+          </div>
+          <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>{desc}</div>
+        </div>
+
+        {/* Price */}
+        <span style={{ fontFamily:'var(--mono)', fontSize:13, color:'var(--success)', fontWeight:700, whiteSpace:'nowrap' }}>
+          {price}
+        </span>
+      </div>
+
+      {/* ── JSON example ─────────────────────────────────────────────── */}
+      <div style={{ borderTop:'1px solid var(--border)', padding:'10px 12px', background:'var(--card)' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+          <span style={{ fontSize:10, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)' }}>
+            Example response
+          </span>
+          {/* cURL toggle */}
+          <button
+            onClick={() => setCurlOpen(o => !o)}
+            style={{ display:'flex', alignItems:'center', gap:4, padding:'2px 8px', fontSize:10, borderRadius:5, border:'1px solid var(--border)', background: curlOpen ? 'var(--primary-dim)' : 'transparent', color: curlOpen ? 'var(--primary)' : 'var(--text-muted)', cursor:'pointer', transition:'all 0.15s', fontFamily:'var(--mono)' }}>
+            <span style={{ fontSize:11 }}>$</span>
+            <span>cURL</span>
+            <span style={{ opacity:0.6, fontSize:9 }}>{curlOpen ? '▲' : '▼'}</span>
+          </button>
+        </div>
+
+        {/* cURL snippet — collapsible */}
+        {curlOpen && (
+          <div style={{ position:'relative', background:'#0d1117', borderRadius:8, overflow:'hidden', marginBottom:10 }}>
+            <button
+              onClick={copyCurl}
+              style={{ position:'absolute', top:8, right:8, padding:'2px 8px', fontSize:10, borderRadius:5, border:'1px solid var(--border)', background:'var(--card)', color: copiedCurl ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer', transition:'color 0.2s', zIndex:1 }}>
+              {copiedCurl ? '✓' : 'Copy'}
+            </button>
+            <pre style={{ margin:0, padding:'12px 14px', fontSize:11, lineHeight:1.7, color:'#e6edf3', fontFamily:'var(--mono)', overflowX:'auto' }}>
+              <code>{curlCmd}</code>
+            </pre>
+          </div>
+        )}
+
+        {/* JSON example body */}
+        <pre style={{ margin:0, padding:'10px 12px', background:'#0d1117', borderRadius:8, fontSize:11, lineHeight:1.7, color:'#e6edf3', fontFamily:'var(--mono)', overflowX:'auto' }}>
+          <code>
+            {(() => {
+              const lines = JSON.stringify(example, null, 2).split('\n');
+              return lines.map((line, i) => {
+                // Simple tokeniser: strings in green, numbers/booleans in cyan, keys in blue
+                const keyMatch  = line.match(/^(\s*)("[\w]+")(:)(.*)/);
+                if (keyMatch) {
+                  const [, indent, key, colon, rest] = keyMatch;
+                  const valTrimmed = rest.trim();
+                  let valColor = '#79c0ff'; // string — blue-ish
+                  if (/^-?\d/.test(valTrimmed))       valColor = '#f2cc60'; // number — amber
+                  if (valTrimmed === 'true' || valTrimmed === 'false') valColor = '#ff7b72'; // bool — red
+                  if (valTrimmed === 'null')           valColor = 'var(--text-muted)';
+                  return (
+                    <span key={i}>
+                      {indent}
+                      <span style={{ color:'#88c0ff' }}>{key}</span>
+                      <span style={{ color:'var(--text-muted)' }}>{colon} </span>
+                      <span style={{ color: valColor }}>{rest.trimStart()}</span>
+                      {'\n'}
+                    </span>
+                  );
+                }
+                // Punctuation / array-item lines
+                return <span key={i} style={{ color:'#8b949e' }}>{line}{'\n'}</span>;
+              });
+            })()}
+          </code>
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 function BuildOnThis({ health }: { health: SellerHealth | null }) {
   const [activeTab, setActiveTab] = useState<'seller' | 'client'>('seller');
 
@@ -752,47 +883,44 @@ const data = await response.json();
         </div>
         {/* Endpoint rows */}
         {([
-          { path:'/weather',  price: health?.prices.weather  ?? '$0.001', desc:'Current conditions for a random city',
-            fields:[
-              { name:'city',        type:'string' },
-              { name:'temperature', type:'number' },
-              { name:'condition',   type:'string' },
-              { name:'humidity',    type:'number' },
-              { name:'paidVia',     type:'string' },
-              { name:'timestamp',   type:'string' },
-            ] },
-          { path:'/forecast', price: health?.prices.forecast ?? '$0.005', desc:'7-day forecast for a random city',
-            fields:[
-              { name:'city',      type:'string' },
-              { name:'days',      type:'{ date: string, tempMax: number, tempMin: number, condition: string }[]' },
-              { name:'paidVia',   type:'string' },
-              { name:'timestamp', type:'string' },
-            ] },
-        ] as const).map((ep, i, arr) => (
-          <div key={ep.path} style={{ background:'var(--bg)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', marginBottom: i < arr.length - 1 ? 8 : 0 }}>
-            {/* Endpoint header */}
-            <div style={{ display:'grid', gridTemplateColumns:'auto 1fr auto', gap:12, alignItems:'center', padding:'10px 12px' }}>
-              <span style={{ fontFamily:'var(--mono)', fontSize:11, padding:'3px 7px', background:'var(--primary-dim)', color:'var(--primary)', borderRadius:5, fontWeight:700, letterSpacing:'0.04em' }}>GET</span>
-              <div>
-                <span style={{ fontFamily:'var(--mono)', fontSize:13, fontWeight:600, color:'var(--primary)' }}>{ep.path}</span>
-                <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>{ep.desc}</div>
-              </div>
-              <span style={{ fontFamily:'var(--mono)', fontSize:13, color:'var(--success)', fontWeight:700, whiteSpace:'nowrap' }}>{ep.price}</span>
-            </div>
-            {/* Response schema — inside the card so it's clearly associated */}
-            <div style={{ borderTop:'1px solid var(--border)', padding:'8px 12px', background:'var(--card)' }}>
-              <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>Response</div>
-              <div style={{ display:'flex', flexWrap:'wrap', gap:'4px 12px' }}>
-                {ep.fields.map(f => (
-                  <span key={f.name} style={{ fontFamily:'var(--mono)', fontSize:11, whiteSpace:'nowrap' }}>
-                    <span style={{ color:'var(--text-dim)' }}>{f.name}</span>
-                    <span style={{ color:'var(--border)', margin:'0 2px' }}>:</span>
-                    <span style={{ color:'var(--text-muted)' }}>{f.type}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
+          {
+            path: '/weather',
+            price: health?.prices.weather ?? '$0.001',
+            desc: 'Current conditions for a random city',
+            example: {
+              city: 'Miami',
+              temperature: 88,
+              condition: 'Sunny',
+              humidity: 78,
+              paidVia: 'x402 / Algorand USDC Testnet',
+              timestamp: new Date().toISOString(),
+            },
+          },
+          {
+            path: '/forecast',
+            price: health?.prices.forecast ?? '$0.005',
+            desc: '7-day forecast for a random city',
+            example: {
+              city: 'New York',
+              days: [
+                { date: '2025-01-01', tempMax: 45, tempMin: 32, condition: 'Partly Cloudy' },
+                { date: '2025-01-02', tempMax: 50, tempMin: 35, condition: 'Sunny' },
+                { date: '…', tempMax: '…', tempMin: '…', condition: '…' },
+              ],
+              paidVia: 'x402 / Algorand USDC Testnet',
+              timestamp: new Date().toISOString(),
+            },
+          },
+        ]).map((ep, i, arr) => (
+          <EndpointCard
+            key={ep.path}
+            path={ep.path}
+            price={ep.price}
+            desc={ep.desc}
+            example={ep.example as Record<string, unknown>}
+            sellerUrl={sellerUrl}
+            last={i === arr.length - 1}
+          />
         ))}
       </div>
 
@@ -1154,50 +1282,24 @@ export default function App() {
       <BuildOnThis health={health} />
 
       {/* Footer */}
-      <footer style={{ borderTop:'1px solid var(--border)', fontSize:13 }}>
-        <div style={{ maxWidth:900, margin:'0 auto', padding:'28px 40px', display:'flex', flexDirection:'column', gap:20 }}>
-          {/* Top row: logo + built-with */}
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:16 }}>
-            <Logo />
-            <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-              <span style={{ fontSize:11, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)' }}>Built with</span>
-              {[
-                { name:'Algorand', dot:'#00b4d8', href:'https://developer.algorand.org' },
-                { name:'USDC',     dot:'#2775ca', href:'https://www.circle.com/usdc' },
-                { name:'Web3Auth', dot:'#0364ff', href:'https://web3auth.io' },
-                { name:'Hono',     dot:'#e36002', href:'https://hono.dev' },
-                { name:'Vite',     dot:'#646cff', href:'https://vitejs.dev' },
-              ].map(({ name, dot, href }) => (
-                <a key={name} href={href} target="_blank" rel="noreferrer"
-                  style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'5px 11px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:20, fontSize:12, fontWeight:500, color:'var(--text-dim)', textDecoration:'none', transition:'all 0.2s' }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor=dot; e.currentTarget.style.color=dot; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--text-dim)'; }}>
-                  <span style={{ width:6, height:6, borderRadius:'50%', background:dot, display:'inline-block', flexShrink:0 }} />
-                  {name}
-                </a>
-              ))}
-            </div>
+      <footer style={{ borderTop:'1px solid var(--border)', fontSize:12 }}>
+        <div style={{ maxWidth:900, margin:'0 auto', padding:'20px 40px', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12, color:'var(--text-muted)' }}>
+          <Logo />
+          <div style={{ display:'flex', gap:20, alignItems:'center', flexWrap:'wrap' }}>
+            {[
+              { label:'Faucet',    href:'https://bank.testnet.algorand.network' },
+              { label:'Explorer',  href:'https://lora.algokit.io/testnet' },
+              { label:'GitHub',    href:GITHUB_URL },
+            ].map(({ label, href }) => (
+              <a key={label} href={href} target="_blank" rel="noreferrer"
+                style={{ color:'var(--text-muted)', textDecoration:'none', transition:'color 0.2s' }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-dim)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
+                {label} ↗
+              </a>
+            ))}
           </div>
-          {/* Bottom row: links + version */}
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12, borderTop:'1px solid var(--border)', paddingTop:16, color:'var(--text-muted)' }}>
-            <div style={{ display:'flex', gap:16, flexWrap:'wrap', alignItems:'center' }}>
-              {[
-                { label:'ALGO faucet', href:'https://bank.testnet.algorand.network' },
-                { label:'USDC faucet', href:'https://faucet.circle.com' },
-                { label:'Explorer',    href:'https://lora.algokit.io/testnet' },
-                { label:'Facilitator', href:'https://facilitator.goplausible.xyz' },
-                { label:'GitHub',      href:GITHUB_URL },
-              ].map(({ label, href }) => (
-                <a key={label} href={href} target="_blank" rel="noreferrer"
-                  style={{ color:'var(--text-muted)', textDecoration:'none', transition:'color 0.2s' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
-                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
-                  {label} ↗
-                </a>
-              ))}
-            </div>
-            <span>MIT · x402 v2 · Algorand Testnet</span>
-          </div>
+          <span style={{ fontSize:11, opacity:0.6 }}>MIT · x402 v2 · Algorand Testnet</span>
         </div>
       </footer>
 
