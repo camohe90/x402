@@ -45,9 +45,10 @@ Browser (ui/)
 buyer/src/server.ts   — Hono SSE server; streams BuyerEvents to the UI
 buyer/src/buyer.ts    — x402 client logic: hits seller, handles 402, signs, retries
 
-seller/src/index.ts   — Hono server with two paid endpoints:
+seller/src/index.ts   — Hono server with three paid endpoints:
                          GET /weather  — current conditions ($0.001 USDC, env: SELLER_WEATHER_PRICE)
                          GET /forecast — 7-day forecast    ($0.005 USDC, env: SELLER_FORECAST_PRICE)
+                         GET /quote    — inspirational quote ($0.002 USDC, env: SELLER_QUOTE_PRICE)
                          Both use Open-Meteo (free, no API key) for real weather data
                          → returns HTTP 402 with payment requirements
                          → verifies payment via goplausible facilitator
@@ -56,7 +57,7 @@ seller/src/index.ts   — Hono server with two paid endpoints:
 
 ### x402 Payment Flow
 
-1. Client sends `GET /weather` or `GET /forecast` (no payment header)
+1. Client sends `GET /weather`, `GET /forecast`, or `GET /quote` (no payment header)
 2. Seller returns HTTP 402 with `PAYMENT-REQUIRED` header (base64 JSON) containing `accepts[]` — scheme, network, `payTo`, price
 3. Client signs an Algorand USDC transaction via `toClientAvmSigner` from `@x402/avm` and retries with proof in `X-PAYMENT` header
 4. `HTTPFacilitatorClient` at `facilitator.goplausible.xyz` verifies and settles on-chain (wrapped with `withRetry` for resilience)
@@ -91,6 +92,7 @@ Root `.env` (seller + buyer):
 | `UI_ORIGIN` | seller | — | Deployed UI origin for CORS (e.g. `https://ui-vert-five.vercel.app`) |
 | `SELLER_WEATHER_PRICE` | seller | `0.001` | Price in USD for `/weather` (plain decimal, no `$`) |
 | `SELLER_FORECAST_PRICE` | seller | `0.005` | Price in USD for `/forecast` (plain decimal, no `$`) |
+| `SELLER_QUOTE_PRICE` | seller | `0.002` | Price in USD for `/quote` (plain decimal, no `$`) |
 
 UI env (set in Vercel dashboard or `ui/.env.local`):
 
