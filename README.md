@@ -153,9 +153,7 @@ sequenceDiagram
     B->>B: Sign Algorand USDC transaction
     B->>S: GET /weather + X-PAYMENT header
     S->>F: verify(payload)
-    F->>A: simulate transaction
-    A-->>F: valid
-    F->>A: submit transaction
+    F->>A: verify + settle on-chain
     A-->>F: txId
     F-->>S: settled ✓
     S-->>B: 200 + weather data
