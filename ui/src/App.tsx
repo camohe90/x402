@@ -1,9 +1,22 @@
+// =============================================================================
+// App.tsx — Demo UI for the x402 Algorand template
+//
+// TO ADAPT THIS TO YOUR OWN SELLER:
+//   1. seller/src/index.ts  — swap routes, price, and handler (CHANGE 1–3)
+//   2. hooks/useBuyer.ts    — update Endpoint type and response types (CHANGE 1–3)
+//   3. ResultCard (line ~260 below) — it auto-renders any JSON shape. If you
+//      want a custom layout, replace the shape-detection block with your own.
+//
+// Everything else (event log, purchase history, protocol flow, spending chart)
+// works with any endpoint and does not need to change.
+// =============================================================================
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useWeb3Auth, fetchWalletBalance, optInToUSDC } from './hooks/useWeb3Auth';
 import type { WalletBalance } from './hooks/useWeb3Auth';
 import { useBuyer, checkSellerHealth } from './hooks/useBuyer';
-import type { BuyEvent, Purchase, WeatherData, ForecastData, Endpoint, SellerHealth } from './hooks/useBuyer';
+import type { BuyEvent, Purchase, Endpoint, SellerHealth } from './hooks/useBuyer';
 
 // ── Step definitions ──────────────────────────────────────────────────────────
 
@@ -73,8 +86,10 @@ function eventLabel(e: BuyEvent) {
     case 'success': {
       const d = e.data;
       if (!d) return 'Data delivered';
-      if ('days' in d) return `Forecast delivered — ${(d as ForecastData).city}, ${(d as ForecastData).days.length} days`;
-      return `Weather delivered — ${(d as WeatherData).city}, ${(d as WeatherData).temperature}°F`;
+      const city = typeof d['city'] === 'string' ? d['city'] : '';
+      if (Array.isArray(d['days'])) return `Delivered — ${city}, ${(d['days'] as unknown[]).length} days`;
+      const temp = typeof d['temperature'] === 'number' ? `, ${d['temperature']}°F` : '';
+      return `Delivered — ${city}${temp}`;
     }
     case 'error': return `Error: ${e.message}`;
   }
@@ -562,9 +577,8 @@ function OnboardingStepper({ balance, optingIn, address }: { balance: WalletBala
 
 const PAGE_SIZE = 8;
 
-function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
+function PurchaseHistory({ purchases, prices }: { purchases: Purchase[]; prices: Record<string, string> }) {
   const [page, setPage] = useState(0);
-  const endpointPrice: Record<Endpoint, number> = { weather: 0.001, forecast: 0.005 };
 
   if (purchases.length === 0) return null;
 
@@ -591,8 +605,8 @@ function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
             onMouseEnter={e => (e.currentTarget.style.background='var(--card-hover)')}
             onMouseLeave={e => (e.currentTarget.style.background='transparent')}>
             <span style={{ color:'var(--text-muted)', fontFamily:'var(--mono)', fontSize:11 }}>{new Date(p.purchasedAt).toLocaleTimeString()}</span>
-            <span style={{ fontWeight:500 }}>/{p.endpoint} <span style={{ color: p.endpoint === 'forecast' ? 'var(--secondary)' : 'var(--primary)', fontSize:11 }}>${endpointPrice[p.endpoint].toFixed(3)}</span></span>
-            <span style={{ color:'var(--text-dim)', fontSize:12 }}>{firstResult((p.weather ?? p.forecast) as Record<string, unknown> | undefined)}</span>
+            <span style={{ fontWeight:500 }}>/{p.endpoint} <span style={{ color: p.endpoint === 'forecast' ? 'var(--secondary)' : 'var(--primary)', fontSize:11 }}>{prices[p.endpoint] ?? ''}</span></span>
+            <span style={{ color:'var(--text-dim)', fontSize:12 }}>{firstResult(p.result)}</span>
             <span style={{ fontFamily:'var(--mono)', fontSize:11, color: p.txid ? 'var(--text-dim)' : 'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:16 }}>{p.txid ?? '—'}</span>
             <span style={{ textAlign:'right' }}>
               {p.txid
@@ -777,8 +791,10 @@ const data = await response.json();
 
       {/* Tabbed code snippet */}
       <div style={{ marginTop:8 }}>
-        {/* Segmented control — both buttons always look clickable */}
-        <div style={{ display:'inline-flex', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:10, padding:4, gap:4, marginBottom:8 }}>
+        {/* Segmented control */}
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:8 }}>
+          <span style={{ fontSize:11, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap' }}>View code for</span>
+        <div style={{ display:'inline-flex', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:10, padding:4, gap:4 }}>
           {([
             { id:'seller', label:'Seller', file:'seller/src/index.ts', color:'var(--secondary)', dim:'var(--secondary-dim)' },
             { id:'client', label:'Client', file:'buyer/src/buyer.ts',  color:'var(--primary)',   dim:'var(--primary-dim)'   },
@@ -805,6 +821,7 @@ const data = await response.json();
               </button>
             );
           })}
+        </div>
         </div>
         <CodeBlock code={activeTab === 'seller' ? sellerCode : clientCode} />
       </div>
@@ -837,7 +854,7 @@ const data = await response.json();
 
 export default function App() {
   const { status: authStatus, isConnected, error: authError, connect, disconnect, getAccount } = useWeb3Auth();
-  const { events, purchases, weather, forecast, loading, error: buyError, buy } = useBuyer();
+  const { events, purchases, result, lastEndpoint, loading, error: buyError, buy } = useBuyer();
   const [address, setAddress]       = useState<string | null>(null);
   const [balance, setBalance]       = useState<WalletBalance | null>(null);
   const [optingIn, setOptingIn]     = useState(false);
@@ -902,11 +919,11 @@ export default function App() {
 
   // Celebration on new data
   useEffect(() => {
-    if (!weather && !forecast) return;
+    if (!result) return;
     setCelebrate(true);
     const t = setTimeout(() => setCelebrate(false), 2500);
     return () => clearTimeout(t);
-  }, [weather, forecast]);
+  }, [result]);
 
   // Total purchase timer
   useEffect(() => {
@@ -928,12 +945,9 @@ export default function App() {
   const lastEventType = events.at(-1)?.type as StepId | undefined;
   const activeStep    = loading ? lastEventType ?? null : null;
   const lastTxid      = [...purchases].at(-1)?.txid;
-  const hasResult     = weather !== null || forecast !== null;
+  const hasResult     = result !== null;
 
-  const endpointPrice: Record<Endpoint, string> = {
-    weather:  health?.prices.weather  ?? '$0.001',
-    forecast: health?.prices.forecast ?? '$0.005',
-  };
+  const endpointPrice: Record<string, string> = health?.prices ?? { weather: '$0.001', forecast: '$0.005' };
 
   const walletHint = balance === null ? undefined
     : !balance.accountExists       ? 'Wallet not funded — get testnet ALGO'
@@ -1027,7 +1041,7 @@ export default function App() {
               <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', justifyContent:'center' }}>
                 <button onClick={handleBuy} disabled={buyDisabled}
                   style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: buyDisabled ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: buyDisabled ? 'var(--text-muted)' : '#001a15', cursor: buyDisabled ? 'not-allowed' : 'pointer', boxShadow: buyDisabled ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em', transition:'all 0.2s' }}>
-                  {loading ? 'Purchasing…' : optingIn ? 'Opting in to USDC…' : `Buy ${selectedEndpoint === 'forecast' ? 'Forecast' : 'Weather'} — ${endpointPrice[selectedEndpoint]}`}
+                  {loading ? 'Purchasing…' : optingIn ? 'Opting in to USDC…' : `Buy /${selectedEndpoint} — ${endpointPrice[selectedEndpoint] ?? ''}`}
                 </button>
               </div>
             )}
@@ -1089,13 +1103,14 @@ export default function App() {
       <section className="content-section" style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px', boxSizing:'border-box' }}>
         <div className={hasResult ? 'demo-grid-split' : 'demo-grid-full'} style={{ gap:16, minHeight:240 }}>
           <EventLog events={events} elapsed={elapsed} />
-          {weather  && <ResultCard endpoint="weather"  data={weather  as unknown as Record<string, unknown>} celebrate={celebrate} txid={lastTxid} />}
-          {forecast && <ResultCard endpoint="forecast" data={forecast as unknown as Record<string, unknown>} celebrate={celebrate} txid={lastTxid} />}
+          {result && lastEndpoint && (
+            <ResultCard endpoint={lastEndpoint} data={result} celebrate={celebrate} txid={lastTxid} />
+          )}
         </div>
       </section>
 
       {/* Purchase History */}
-      <PurchaseHistory purchases={purchases} />
+      <PurchaseHistory purchases={purchases} prices={endpointPrice} />
 
       {/* How it works */}
       <section className="content-section" style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 80px', boxSizing:'border-box' }}>
