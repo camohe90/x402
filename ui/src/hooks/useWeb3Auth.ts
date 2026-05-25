@@ -54,7 +54,7 @@ export async function fetchWalletBalance(address: string): Promise<WalletBalance
   }
 }
 
-function buildWeb3Auth(skipSession = false) {
+function buildWeb3Auth(includeStoredSession = true) {
   const chainConfig = {
     chainNamespace: CHAIN_NAMESPACES.OTHER,
     chainId: 'algorand:testnet',
@@ -68,12 +68,9 @@ function buildWeb3Auth(skipSession = false) {
   const privateKeyProvider = new CommonPrivateKeyProvider({
     config: { chain: chainConfig, chains: [chainConfig] },
   });
-  // Restore persisted session from localStorage. Web3Auth stores its session under
-  // "Web3Auth-state" — if initialState is passed, it bypasses localStorage entirely,
-  // so we read it ourselves and spread it. We only override currentChainId to keep
-  // Algorand as the active chain (prevents the null wsEmbedInstance crash on EIP155).
+
   let storedState: Record<string, unknown> = {};
-  if (!skipSession) {
+  if (includeStoredSession) {
     try {
       const raw = localStorage.getItem('Web3Auth-state');
       if (raw) storedState = JSON.parse(raw) as Record<string, unknown>;
@@ -92,6 +89,8 @@ function buildWeb3Auth(skipSession = false) {
       connectedConnectorName: null,
       idToken: null,
       ...storedState,
+      // Always force Algorand — prevents null wsEmbedInstance crash when the project
+      // config adds EVM chains and EIP155 becomes chains[0].
       currentChainId: 'algorand:testnet',
     },
   );
@@ -105,49 +104,51 @@ export function useWeb3Auth() {
 
   useEffect(() => {
     if (instanceRef.current) return;
-    const w3a = buildWeb3Auth();
+    const w3a = buildWeb3Auth(true);
     instanceRef.current = w3a;
     setStatus('initializing');
 
-    // Web3Auth's init() resolves before connector setup completes — the CONNECTORS_UPDATED
-    // handler that calls setupConnector() is async and fires after init() returns. Session
-    // restore (auto-connect) therefore completes via events, not within init()'s promise.
-    // Listen for "connected"/"rehydration_error" BEFORE calling init() to avoid missing them.
+    // Web3Auth's session restore for non-EVM chains fires an async internal crash
+    // ("loginWithSessionId" on null wsEmbedInstance) AFTER init() has already resolved.
+    // Suppress it here so it never surfaces as a console error or dev overlay.
+    const suppressCrash = (e: PromiseRejectionEvent) => {
+      if (String((e.reason as Error)?.message ?? '').includes('loginWithSessionId'))
+        e.preventDefault();
+    };
+    window.addEventListener('unhandledrejection', suppressCrash);
+
     const onConnected = () => {
       if (w3a.provider) {
         setProvider(w3a.provider);
         setStatus('connected');
       }
     };
-    const onRehydrationError = () => {
-      setProvider(null);
-      setStatus('ready');
+
+    // When session restore fails, the original instance is in a broken state — calling
+    // connect() on it would throw the same error. Rebuild a clean instance first.
+    const buildFresh = () => {
+      w3a.off('connected', onConnected);
+      w3a.off('rehydration_error', buildFresh);
+      const fresh = buildWeb3Auth(false);
+      instanceRef.current = fresh;
+      fresh.init().catch(() => {}).finally(() => setStatus('ready'));
     };
+
     w3a.on('connected', onConnected);
-    w3a.on('rehydration_error', onRehydrationError);
+    w3a.on('rehydration_error', buildFresh);
 
     w3a.init()
       .then(() => {
-        // If no cached connector, there is no session to restore — go straight to ready.
-        // If cachedConnector is set, the connector setup is still in progress; the event
-        // listeners above will fire when it completes (or fails).
-        if (!w3a.cachedConnector) {
-          setStatus('ready');
-        }
+        // If no cachedConnector, no session to restore — ready immediately.
+        // If cachedConnector is set, connector setup is async; 'connected' or
+        // 'rehydration_error' will fire when it completes.
+        if (!w3a.cachedConnector) setStatus('ready');
       })
       .catch(() => {
-        // init() can throw when auto-reconnect crashes (e.g., wsEmbedInstance is null for
-        // non-EVM chains when the project config includes EVM chains). Fall back silently:
-        // rebuild a fresh instance without a cached connector so connect() works normally.
-        w3a.off('connected', onConnected);
-        w3a.off('rehydration_error', onRehydrationError);
-        const fresh = buildWeb3Auth(true /* skipSession — no auto-connect */);
-        instanceRef.current = fresh;
-        fresh.init().catch(() => {}); // best-effort; connect() checks ready state
-        setStatus('ready');
+        // init() threw synchronously during session restore — fall back to a clean instance.
+        buildFresh();
       });
 
-    // Fallback: if session restore takes more than 10 s, give up and show connect button.
     const timeout = setTimeout(() => {
       setStatus(s => (s === 'initializing' ? 'ready' : s));
     }, 10_000);
@@ -155,7 +156,8 @@ export function useWeb3Auth() {
     return () => {
       clearTimeout(timeout);
       w3a.off('connected', onConnected);
-      w3a.off('rehydration_error', onRehydrationError);
+      w3a.off('rehydration_error', buildFresh);
+      window.removeEventListener('unhandledrejection', suppressCrash);
     };
   }, []);
 
