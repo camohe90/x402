@@ -68,9 +68,16 @@ function buildWeb3Auth() {
   const privateKeyProvider = new CommonPrivateKeyProvider({
     config: { chain: chainConfig, chains: [chainConfig] },
   });
-  // Pass initialState.currentChainId so initCachedConnectorAndChainId treats Algorand
-  // as the "cached" chain, bypassing the EIP155 chain from projectConfig which would
-  // otherwise become chains[0] and trigger the null wsEmbedInstance crash.
+  // Restore persisted session from localStorage. Web3Auth stores its session under
+  // "Web3Auth-state" — if initialState is passed, it bypasses localStorage entirely,
+  // so we read it ourselves and spread it. We only override currentChainId to keep
+  // Algorand as the active chain (prevents the null wsEmbedInstance crash on EIP155).
+  let storedState: Record<string, unknown> = {};
+  try {
+    const raw = localStorage.getItem('Web3Auth-state');
+    if (raw) storedState = JSON.parse(raw) as Record<string, unknown>;
+  } catch { /* ignore parse errors */ }
+
   return new Web3Auth(
     {
       clientId: import.meta.env.VITE_WEB3AUTH_CLIENT_ID as string,
@@ -79,10 +86,11 @@ function buildWeb3Auth() {
       chains: [chainConfig],
     },
     {
-      currentChainId: 'algorand:testnet',
       cachedConnector: null,
       connectedConnectorName: null,
       idToken: null,
+      ...storedState,
+      currentChainId: 'algorand:testnet',
     },
   );
 }
