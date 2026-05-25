@@ -87,6 +87,14 @@ function endpointIcon(ep: Endpoint) {
   if (ep === 'forecast') return '📅';
   return '🌡️';
 }
+const CONDITION_ICON: Record<string, string> = {
+  'Clear Sky':'☀️', 'Mainly Clear':'🌤️', 'Partly Cloudy':'⛅', 'Overcast':'☁️',
+  'Foggy':'🌫️', 'Drizzle':'🌦️', 'Heavy Drizzle':'🌧️',
+  'Light Rain':'🌦️', 'Rain':'🌧️', 'Heavy Rain':'⛈️',
+  'Light Snow':'🌨️', 'Snow':'❄️', 'Heavy Snow':'❄️',
+  'Showers':'🌦️', 'Heavy Showers':'⛈️', 'Thunderstorm':'⛈️', 'Windy':'💨',
+};
+function condIcon(c: string) { return CONDITION_ICON[c] ?? '🌤️'; }
 function fmtTime(ms: number) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
@@ -267,10 +275,17 @@ function ResultCard({ endpoint, data, celebrate, txid }: {
         </div>
       )}
 
-      {/* Endpoint label */}
-      <div style={{ textAlign:'center', fontSize:13, fontWeight:600, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:16 }}>
-        {endpoint}
-      </div>
+      {/* Endpoint label + optional condition icon */}
+      {(() => {
+        const cond = scalars.find(([k]) => k === 'condition')?.[1];
+        const icon = cond ? condIcon(String(cond)) : null;
+        return (
+          <div style={{ textAlign:'center', marginBottom:16 }}>
+            {icon && <div style={{ fontSize:40, marginBottom:4 }}>{icon}</div>}
+            <div style={{ fontSize:13, fontWeight:600, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--text-muted)' }}>{endpoint}</div>
+          </div>
+        );
+      })()}
 
       {/* Scalar fields — auto-rendered from response */}
       {scalars.length > 0 ? (
@@ -278,7 +293,9 @@ function ResultCard({ endpoint, data, celebrate, txid }: {
           {scalars.map(([k, v]) => (
             <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 12px', background:'var(--bg)', borderRadius:8 }}>
               <span style={{ fontSize:12, color:'var(--text-muted)' }}>{formatKey(k)}</span>
-              <span style={{ fontSize:13, fontWeight:600, fontFamily:'var(--mono)', color:'var(--text)', maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{formatVal(v)}</span>
+              <span style={{ fontSize:13, fontWeight:600, fontFamily:'var(--mono)', color:'var(--text)', maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                {k === 'condition' ? `${condIcon(String(v))} ${v}` : formatVal(v)}
+              </span>
             </div>
           ))}
         </div>
@@ -290,12 +307,16 @@ function ResultCard({ endpoint, data, celebrate, txid }: {
           <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>{formatKey(k)}</div>
           <div style={{ display:'flex', flexDirection:'column', gap:4, maxHeight:220, overflowY:'auto' }}>
             {arr.map((item, i) => {
-              const vals = Object.entries(item)
-                .filter(([, v]) => typeof v !== 'object' && v !== null)
-                .map(([, v]) => formatVal(v));
+              const condVal = typeof item['condition'] === 'string' ? item['condition'] : null;
+              const entries = Object.entries(item).filter(([, v]) => typeof v !== 'object' && v !== null);
               return (
-                <div key={i} style={{ display:'flex', gap:8, padding:'5px 10px', fontSize:12, color:'var(--text-dim)', background: i === 0 ? 'var(--primary-dim)' : 'var(--bg)', borderRadius:6, flexWrap:'wrap' }}>
-                  {vals.map((v, j) => <span key={j} style={{ color: i === 0 && j === 0 ? 'var(--primary)' : 'var(--text-dim)' }}>{v}</span>)}
+                <div key={i} style={{ display:'flex', gap:8, alignItems:'center', padding:'5px 10px', fontSize:12, color:'var(--text-dim)', background: i === 0 ? 'var(--primary-dim)' : 'var(--bg)', borderRadius:6, flexWrap:'wrap' }}>
+                  {condVal && <span style={{ fontSize:16 }}>{condIcon(condVal)}</span>}
+                  {entries.map(([ek, v], j) => (
+                    <span key={ek} style={{ color: i === 0 && j === 0 ? 'var(--primary)' : 'var(--text-dim)' }}>
+                      {ek === 'condition' ? String(v) : formatVal(v)}
+                    </span>
+                  ))}
                 </div>
               );
             })}
@@ -619,6 +640,10 @@ const data = await response.json();
             <span style={{ fontFamily:'var(--mono)', fontSize:12, color:'var(--success)', fontWeight:700, whiteSpace:'nowrap' }}>{ep.price}</span>
           </div>
         ))}
+        <div style={{ marginTop:4, padding:'10px 14px', background:'var(--bg)', borderRadius:8, fontSize:12, fontFamily:'var(--mono)', color:'var(--text-muted)', lineHeight:1.6 }}>
+          /weather  → {'{ city, temperature, condition, humidity, paidVia, timestamp }'}<br/>
+          /forecast → {'{ city, days: [{ date, tempMax, tempMin, condition }], paidVia, timestamp }'}
+        </div>
       </div>
 
       {/* Tabbed code snippet */}
