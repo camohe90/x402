@@ -19,15 +19,16 @@ The point isn't the weather data — it's the pattern. Any API can become a pay-
 Browser (React + Web3Auth)
   └── pays seller directly via x402 for each request
 
-seller/  — Hono server with two paid endpoints:
+seller/  — Hono server with three paid endpoints:
              GET /weather  — current conditions, $0.001 USDC per request
              GET /forecast — 7-day forecast,     $0.005 USDC per request
+             GET /quote    — inspirational quote, $0.002 USDC per request
 ui/      — React + Vite SPA, deployed on Vercel
 
 buyer/   — local testing only (see below)
 ```
 
-The `seller` exposes `GET /weather` and `GET /forecast` behind USDC paywalls. Any client that sends a valid x402 payment proof gets the data. The `ui` demonstrates a browser-based buyer using Web3Auth (email login, no seed phrase).
+The `seller` exposes three paid endpoints — `/weather`, `/forecast`, and `/quote` — behind USDC paywalls. Any client that sends a valid x402 payment proof gets the data. The `ui` demonstrates a browser-based buyer using Web3Auth (email login, no seed phrase).
 
 ---
 
@@ -167,16 +168,39 @@ sequenceDiagram
 
 ## Hackathon ideas
 
-| Idea | What to change |
-|---|---|
-| **AI API gateway** | Replace the weather handler with an LLM call; charge per request or per token |
-| **Real-time data** | Stock prices, sports scores, IoT sensor readings — charge per fetch |
-| **Geo / mapping** | Geocoding, routing, or satellite imagery on demand |
-| **Secrets vault** | Encrypt a payload; return the decryption key only after payment |
-| **Media streaming** | Pay-per-minute audio or video segments |
-| **Document generation** | PDFs, reports, or AI summaries billed per generation |
+The x402 pattern works for anything where value should only be released after confirmed payment. Some starting points:
 
-In every case, the only files you need to touch are:
+**Data products**
+- Stock prices, sports scores, or flight status — charge per fetch instead of per month
+- IoT sensor readings — devices earn revenue when their data is consumed
+- Satellite or aerial imagery tiles — pay only for the tiles you actually render
+- Research datasets — sell individual rows or time ranges, not the whole file
+
+**AI services**
+- LLM completions — charge per request, per token, or per model tier
+- Image or video generation — the image URL is only returned after payment settles
+- Embedding or classification APIs — useful when you want to monetize a fine-tuned model
+- RAG search over private documents — pay per query, not per user seat
+
+**Access and identity**
+- Secrets vault — store an encrypted payload; return the decryption key only after payment
+- Licence keys or signed JWTs — issued on demand, no subscription flow needed
+- Content unlock — article, PDF, or video link revealed after a single microtransaction
+- One-time passwords or TOTP seeds — sell MFA credentials for disposable accounts
+
+**Agent infrastructure**
+- A tool endpoint for AI agents — agents call your API the same way a browser does, no OAuth required
+- Compute credits — wrap any GPU or CPU job behind x402; the job starts only when payment is confirmed
+- Webhook relay — an agent pays to register a callback; you trigger it when its event fires
+- Cross-agent marketplaces — one agent pays another for specialised sub-tasks
+
+**Consumer apps**
+- Pay-per-minute calls or video — meter usage in 60-second increments, settle each one
+- Tipping infrastructure — any creator endpoint can accept micropayments with zero platform cut
+- In-game item drops — the game server checks payment before minting the item on-chain
+- Anonymous surveys — respondents earn USDC for completing surveys, no account required
+
+In every case the only files you need to touch are:
 - **`seller/src/index.ts`** — swap the `/weather` route and handler for your own endpoint
 - **`ui/src/hooks/useBuyer.ts`** — change the URL and response type to match your new endpoint
 
