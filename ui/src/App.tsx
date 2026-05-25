@@ -315,7 +315,7 @@ function EventLog({ events, elapsed }: { events: BuyEvent[]; elapsed: number | n
 }
 
 function SpendingChart({ purchases }: { purchases: Purchase[] }) {
-  if (purchases.length < 2) return null;
+  if (purchases.length === 0) return null;
 
   const weatherCount  = purchases.filter(p => p.endpoint === 'weather').length;
   const forecastCount = purchases.filter(p => p.endpoint === 'forecast').length;
@@ -330,48 +330,55 @@ function SpendingChart({ purchases }: { purchases: Purchase[] }) {
   const circ = 2 * Math.PI * r;
   const forecastArc = (forecastSpend / total) * circ;
   const weatherArc  = (weatherSpend  / total) * circ;
+  const avg = total / purchases.length;
 
   return (
-    <div style={{ marginBottom:20 }}>
-      <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:12 }}>Spend breakdown</div>
-      <div style={{ display:'flex', alignItems:'center', gap:28 }}>
-        <svg width={112} height={112} viewBox="0 0 112 112">
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={14} />
-          {forecastCount > 0 && (
-            <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--secondary)" strokeWidth={14}
-              strokeDasharray={`${forecastArc} ${circ}`} strokeDashoffset={0}
-              transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" />
-          )}
-          {weatherCount > 0 && (
-            <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--primary)" strokeWidth={14}
-              strokeDasharray={`${weatherArc} ${circ}`} strokeDashoffset={-forecastArc}
-              transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" />
-          )}
-          <text x={cx} y={cy - 7} textAnchor="middle" fill="var(--text)" fontSize={13} fontWeight={700} fontFamily="var(--mono)">${total.toFixed(3)}</text>
-          <text x={cx} y={cy + 9} textAnchor="middle" fill="var(--text-muted)" fontSize={10} fontFamily="var(--sans)">USDC spent</text>
-        </svg>
+    <div style={{ display:'flex', alignItems:'center', gap:28, padding:'20px 0', borderBottom:'1px solid var(--border)', marginBottom:20 }}>
+      <svg width={112} height={112} viewBox="0 0 112 112" style={{ flexShrink:0 }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={14} />
+        {forecastCount > 0 && (
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--secondary)" strokeWidth={14}
+            strokeDasharray={`${forecastArc} ${circ}`} strokeDashoffset={0}
+            transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" />
+        )}
+        {weatherCount > 0 && (
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--primary)" strokeWidth={14}
+            strokeDasharray={`${weatherArc} ${circ}`} strokeDashoffset={-forecastArc}
+            transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="round" />
+        )}
+        <text x={cx} y={cy - 7} textAnchor="middle" fill="var(--text)" fontSize={13} fontWeight={700} fontFamily="var(--mono)">${total.toFixed(3)}</text>
+        <text x={cx} y={cy + 9} textAnchor="middle" fill="var(--text-muted)" fontSize={10} fontFamily="var(--sans)">USDC spent</text>
+      </svg>
 
-        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+      <div style={{ display:'flex', flexDirection:'column', gap:14, flex:1 }}>
+        {/* Summary stats */}
+        <div style={{ display:'flex', gap:20, flexWrap:'wrap' }}>
+          <div>
+            <div style={{ fontSize:18, fontWeight:700, fontFamily:'var(--mono)', color:'var(--text)' }}>{purchases.length}</div>
+            <div style={{ fontSize:11, color:'var(--text-muted)' }}>API call{purchases.length !== 1 ? 's' : ''}</div>
+          </div>
+          <div>
+            <div style={{ fontSize:18, fontWeight:700, fontFamily:'var(--mono)', color:'var(--success)' }}>${total.toFixed(3)}</div>
+            <div style={{ fontSize:11, color:'var(--text-muted)' }}>total USDC</div>
+          </div>
+          <div>
+            <div style={{ fontSize:18, fontWeight:700, fontFamily:'var(--mono)', color:'var(--text-dim)' }}>${avg.toFixed(3)}</div>
+            <div style={{ fontSize:11, color:'var(--text-muted)' }}>avg per call</div>
+          </div>
+        </div>
+
+        {/* Per-endpoint breakdown */}
+        <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
           {weatherCount > 0 && (
-            <div>
-              <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:2 }}>
-                <span style={{ width:10, height:10, borderRadius:2, background:'var(--primary)', display:'inline-block', flexShrink:0 }} />
-                <span style={{ fontSize:12, fontWeight:600, color:'var(--text-dim)' }}>Weather</span>
-              </div>
-              <div style={{ fontSize:11, color:'var(--text-muted)', paddingLeft:17 }}>
-                {weatherCount} request{weatherCount !== 1 ? 's' : ''} · ${weatherSpend.toFixed(3)}
-              </div>
+            <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+              <span style={{ width:8, height:8, borderRadius:2, background:'var(--primary)', display:'inline-block', flexShrink:0 }} />
+              <span style={{ fontSize:12, color:'var(--text-muted)' }}>Weather — {weatherCount}× · ${weatherSpend.toFixed(3)}</span>
             </div>
           )}
           {forecastCount > 0 && (
-            <div>
-              <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:2 }}>
-                <span style={{ width:10, height:10, borderRadius:2, background:'var(--secondary)', display:'inline-block', flexShrink:0 }} />
-                <span style={{ fontSize:12, fontWeight:600, color:'var(--text-dim)' }}>Forecast</span>
-              </div>
-              <div style={{ fontSize:11, color:'var(--text-muted)', paddingLeft:17 }}>
-                {forecastCount} request{forecastCount !== 1 ? 's' : ''} · ${forecastSpend.toFixed(3)}
-              </div>
+            <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+              <span style={{ width:8, height:8, borderRadius:2, background:'var(--secondary)', display:'inline-block', flexShrink:0 }} />
+              <span style={{ fontSize:12, color:'var(--text-muted)' }}>Forecast — {forecastCount}× · ${forecastSpend.toFixed(3)}</span>
             </div>
           )}
         </div>
@@ -443,25 +450,9 @@ function OnboardingStepper({ balance, optingIn, address }: { balance: WalletBala
 function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
   if (purchases.length === 0) return null;
   const endpointPrice: Record<Endpoint, number> = { weather: 0.001, forecast: 0.005 };
-  const totalSpent = purchases.reduce((sum, p) => sum + endpointPrice[p.endpoint], 0);
   return (
     <section style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:20, flexWrap:'wrap', gap:8 }}>
-        <div style={{ fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--text-muted)' }}>Purchase History</div>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <span style={{ padding:'4px 10px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:8, fontSize:12, color:'var(--text-dim)', fontWeight:600 }}>
-            ⚡ {purchases.length} API call{purchases.length !== 1 ? 's' : ''}
-          </span>
-          <span style={{ padding:'4px 10px', background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:8, fontFamily:'var(--mono)', fontSize:12, fontWeight:700, color:'var(--success)' }}>
-            ${totalSpent.toFixed(3)} USDC
-          </span>
-          {purchases.length > 1 && (
-            <span style={{ fontSize:11, color:'var(--text-muted)' }}>
-              avg ${(totalSpent / purchases.length).toFixed(3)}/call
-            </span>
-          )}
-        </div>
-      </div>
+      <div style={{ fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:0 }}>Purchase History</div>
 
       <SpendingChart purchases={purchases} />
 
