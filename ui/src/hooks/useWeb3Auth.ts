@@ -54,7 +54,7 @@ export async function fetchWalletBalance(address: string): Promise<WalletBalance
   }
 }
 
-function buildWeb3Auth() {
+function buildWeb3Auth(skipSession = false) {
   const chainConfig = {
     chainNamespace: CHAIN_NAMESPACES.OTHER,
     chainId: 'algorand:testnet',
@@ -73,10 +73,12 @@ function buildWeb3Auth() {
   // so we read it ourselves and spread it. We only override currentChainId to keep
   // Algorand as the active chain (prevents the null wsEmbedInstance crash on EIP155).
   let storedState: Record<string, unknown> = {};
-  try {
-    const raw = localStorage.getItem('Web3Auth-state');
-    if (raw) storedState = JSON.parse(raw) as Record<string, unknown>;
-  } catch { /* ignore parse errors */ }
+  if (!skipSession) {
+    try {
+      const raw = localStorage.getItem('Web3Auth-state');
+      if (raw) storedState = JSON.parse(raw) as Record<string, unknown>;
+    } catch { /* ignore parse errors */ }
+  }
 
   return new Web3Auth(
     {
@@ -133,9 +135,16 @@ export function useWeb3Auth() {
           setStatus('ready');
         }
       })
-      .catch((e: Error) => {
-        setError(e.message ?? 'Init failed');
-        setStatus('error');
+      .catch(() => {
+        // init() can throw when auto-reconnect crashes (e.g., wsEmbedInstance is null for
+        // non-EVM chains when the project config includes EVM chains). Fall back silently:
+        // rebuild a fresh instance without a cached connector so connect() works normally.
+        w3a.off('connected', onConnected);
+        w3a.off('rehydration_error', onRehydrationError);
+        const fresh = buildWeb3Auth(true /* skipSession — no auto-connect */);
+        instanceRef.current = fresh;
+        fresh.init().catch(() => {}); // best-effort; connect() checks ready state
+        setStatus('ready');
       });
 
     // Fallback: if session restore takes more than 10 s, give up and show connect button.
