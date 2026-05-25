@@ -468,10 +468,12 @@ export default function App() {
   const [optingIn, setOptingIn]     = useState(false);
   const [heroCopied, setHeroCopied] = useState(false);
   const [celebrate, setCelebrate]   = useState(false);
-  const [elapsed, setElapsed]       = useState<number | null>(null);
+  const [elapsed, setElapsed]           = useState<number | null>(null);
+  const [algoElapsed, setAlgoElapsed]   = useState<number | null>(null);
   const [selectedEndpoint, setSelectedEndpoint] = useState<Endpoint>('weather');
-  const [health, setHealth]         = useState<SellerHealth | null>(null);
-  const startTimeRef = useRef<number | null>(null);
+  const [health, setHealth]             = useState<SellerHealth | null>(null);
+  const startTimeRef    = useRef<number | null>(null);
+  const algoStartRef    = useRef<number | null>(null);
 
   // Load wallet on connect / restore session
   useEffect(() => {
@@ -515,16 +517,30 @@ export default function App() {
     return () => clearTimeout(t);
   }, [weather, forecast]);
 
-  // Purchase timer
+  // Total purchase timer
   useEffect(() => {
     if (loading) {
       startTimeRef.current = Date.now();
+      algoStartRef.current = null;
       setElapsed(null);
+      setAlgoElapsed(null);
     } else if (startTimeRef.current !== null) {
       setElapsed(Date.now() - startTimeRef.current);
       startTimeRef.current = null;
     }
   }, [loading]);
+
+  // Algorand settlement timer: payment_sent → settlement_confirmed
+  useEffect(() => {
+    const last = events[events.length - 1];
+    if (!last) return;
+    if (last.type === 'payment_sent') {
+      algoStartRef.current = Date.now();
+    } else if (last.type === 'settlement_confirmed' && algoStartRef.current !== null) {
+      setAlgoElapsed(Date.now() - algoStartRef.current);
+      algoStartRef.current = null;
+    }
+  }, [events]);
 
   // Seller health check on mount
   useEffect(() => {
@@ -688,7 +704,16 @@ export default function App() {
         <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:20, padding:'28px 32px' }}>
           <div style={{ fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:24, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <span>Protocol Flow</span>
-            {elapsed !== null && !loading && <span style={{ fontFamily:'var(--mono)', color:'var(--success)', fontSize:12 }}>completed in {fmtTime(elapsed)}</span>}
+            {elapsed !== null && !loading && (
+              <div style={{ display:'flex', gap:16, alignItems:'center' }}>
+                {algoElapsed !== null && (
+                  <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--primary)', fontWeight:600 }}>
+                    ◈ Algorand {fmtTime(algoElapsed)}
+                  </span>
+                )}
+                <span style={{ fontFamily:'var(--mono)', color:'var(--success)', fontSize:12 }}>completed in {fmtTime(elapsed)}</span>
+              </div>
+            )}
           </div>
           <div style={{ display:'flex', alignItems:'flex-start', overflowX:'auto', paddingBottom:4 }}>
             {STEPS.map((step, i) => (
