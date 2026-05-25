@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useWeb3Auth, fetchWalletBalance, optInToUSDC } from './hooks/useWeb3Auth';
 import type { WalletBalance } from './hooks/useWeb3Auth';
 import { useBuyer, checkSellerHealth } from './hooks/useBuyer';
-import type { BuyEvent, Purchase, WeatherData, ForecastData, Endpoint, SellerHealth } from './hooks/useBuyer';
+import type { BuyEvent, Purchase, WeatherData, ForecastData, QuoteData, Endpoint, SellerHealth, PurchaseLog } from './hooks/useBuyer';
 
-// ── Step definitions ─────────────────────────────────────────────────────────
+// ── Step definitions ──────────────────────────────────────────────────────────
 
 const STEPS = [
   { id: 'request_sent',         label: 'Request',  desc: 'Buyer → Seller',               color: 'primary'   },
@@ -42,12 +43,16 @@ function eventLabel(e: BuyEvent) {
     case 'payment_required':     return `402 received — ${Number(e.amount ?? 0) / 1e6} USDC required`;
     case 'payment_signing':      return 'Signing Algorand USDC transaction…';
     case 'payment_sent':         return 'Retrying with payment proof in header';
-    case 'settlement_confirmed': return e.txid ? `Settled — tx: ${e.txid.slice(0, 12)}…` : 'Facilitator confirmed on-chain settlement';
+    case 'settlement_confirmed': {
+      const lat = e.latencyMs ? ` · ${e.latencyMs}ms` : '';
+      return e.txid ? `Settled — tx: ${e.txid.slice(0, 12)}…${lat}` : `Facilitator confirmed on-chain${lat}`;
+    }
     case 'success': {
       const d = e.data;
       if (!d) return 'Data delivered';
-      if ('days' in d) return `Forecast delivered — ${d.city}, ${d.days.length} days`;
-      return `Weather delivered — ${d.city}, ${d.temperature}°F`;
+      if ('days' in d)    return `Forecast delivered — ${(d as ForecastData).city}, ${(d as ForecastData).days.length} days`;
+      if ('text' in d)    return `Quote delivered — ${(d as QuoteData).author}`;
+      return `Weather delivered — ${(d as WeatherData).city}, ${(d as WeatherData).temperature}°F`;
     }
     case 'error': return `Error: ${e.message}`;
   }
@@ -55,6 +60,11 @@ function eventLabel(e: BuyEvent) {
 function stepIcon(id: StepId) {
   const m: Record<StepId, string> = { request_sent:'📡', payment_required:'🔴', payment_signing:'✍️', payment_sent:'💸', settlement_confirmed:'⛓️', success:'✅' };
   return m[id];
+}
+function endpointIcon(ep: Endpoint) {
+  if (ep === 'forecast') return '📅';
+  if (ep === 'quote')    return '💬';
+  return '🌡️';
 }
 function fmtTime(ms: number) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
@@ -114,9 +124,7 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -126,6 +134,7 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
     if (!address) return;
     navigator.clipboard.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   };
+
   if (status === 'connected' && address) {
     return (
       <div ref={containerRef} style={{ position:'relative' }}>
@@ -136,48 +145,60 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
         </button>
         {open && (
           <div style={{ position:'absolute', right:0, top:'calc(100% + 8px)', zIndex:100, width:300, background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'0 8px 32px rgba(0,0,0,0.4)', overflow:'hidden', animation:'popIn 0.15s ease' }}>
-              <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
-                <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>Wallet Address</div>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text-dim)', wordBreak:'break-all', flex:1, lineHeight:1.5 }}>{address}</span>
-                  <button onClick={copyAddress} style={{ flexShrink:0, padding:'4px 10px', fontSize:11, borderRadius:6, border:'1px solid var(--border)', background:'transparent', color: copied ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer', whiteSpace:'nowrap', transition:'color 0.2s' }}>
-                    {copied ? '✓ Copied' : 'Copy'}
-                  </button>
-                </div>
-              </div>
-              <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
-                <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:10 }}>Balances</div>
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {[['ALGO', balance ? balance.algo.toFixed(4) : '—', true],
-                    ['USDC', balance ? (balance.usdcOptedIn ? balance.usdc.toFixed(4) : 'Not opted in') : '—', !!(balance?.usdc && balance.usdc >= 0.001)]
-                  ].map(([label, val, ok]) => (
-                    <div key={String(label)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <span style={{ fontSize:13, color:'var(--text-muted)' }}>{label}</span>
-                      <span style={{ fontFamily:'var(--mono)', fontSize:13, fontWeight:600, color: ok ? 'var(--text-dim)' : 'var(--warning)' }}>{String(val)}</span>
-                    </div>
-                  ))}
-                </div>
-                {walletHint && (
-                  <div style={{ marginTop:10, padding:'8px 10px', background:'rgba(251,191,36,0.08)', border:'1px solid var(--warning)33', borderRadius:8, fontSize:11, color:'var(--warning)', lineHeight:1.8 }}>
-                    {walletHint}
-                    <div style={{ marginTop:4, display:'flex', gap:10 }}>
-                      {(!balance?.accountExists || balance.algo < 0.2) && (
-                        <a href="https://bank.testnet.algorand.network/" target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'underline' }}>Get ALGO ↗</a>
-                      )}
-                      {balance?.accountExists && !balance.usdcOptedIn && balance.algo >= 0.2 && (
-                        <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'underline' }}>Get USDC ↗</a>
-                      )}
-                      {balance?.usdcOptedIn && balance.usdc < 0.001 && (
-                        <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'underline' }}>Get USDC ↗</a>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div style={{ padding:'10px 16px' }}>
-                <button onClick={() => { setOpen(false); onDisconnect(); }} style={{ width:'100%', padding:'8px', fontSize:13, borderRadius:8, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor:'pointer' }}>Disconnect</button>
+            {/* Address */}
+            <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
+              <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>Wallet Address</div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text-dim)', wordBreak:'break-all', flex:1, lineHeight:1.5 }}>{address}</span>
+                <button onClick={copyAddress} style={{ flexShrink:0, padding:'4px 10px', fontSize:11, borderRadius:6, border:'1px solid var(--border)', background:'transparent', color: copied ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer', whiteSpace:'nowrap', transition:'color 0.2s' }}>
+                  {copied ? '✓ Copied' : 'Copy'}
+                </button>
               </div>
             </div>
+            {/* QR code for wallet funding */}
+            <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
+              <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:10 }}>Scan to Fund</div>
+              <div style={{ display:'flex', justifyContent:'center' }}>
+                <div style={{ padding:8, background:'#ffffff', borderRadius:8, display:'inline-block' }}>
+                  <QRCodeSVG value={address} size={140} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+                </div>
+              </div>
+              <div style={{ fontSize:10, color:'var(--text-muted)', textAlign:'center', marginTop:8 }}>Use at ALGO or USDC faucet</div>
+            </div>
+            {/* Balances */}
+            <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
+              <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:10 }}>Balances</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {[['ALGO', balance ? balance.algo.toFixed(4) : '—', true],
+                  ['USDC', balance ? (balance.usdcOptedIn ? balance.usdc.toFixed(4) : 'Not opted in') : '—', !!(balance?.usdc && balance.usdc >= 0.001)]
+                ].map(([label, val, ok]) => (
+                  <div key={String(label)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ fontSize:13, color:'var(--text-muted)' }}>{label}</span>
+                    <span style={{ fontFamily:'var(--mono)', fontSize:13, fontWeight:600, color: ok ? 'var(--text-dim)' : 'var(--warning)' }}>{String(val)}</span>
+                  </div>
+                ))}
+              </div>
+              {walletHint && (
+                <div style={{ marginTop:10, padding:'8px 10px', background:'rgba(251,191,36,0.08)', border:'1px solid var(--warning)33', borderRadius:8, fontSize:11, color:'var(--warning)', lineHeight:1.8 }}>
+                  {walletHint}
+                  <div style={{ marginTop:4, display:'flex', gap:10 }}>
+                    {(!balance?.accountExists || balance.algo < 0.2) && (
+                      <a href="https://bank.testnet.algorand.network/" target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'underline' }}>Get ALGO ↗</a>
+                    )}
+                    {balance?.accountExists && !balance.usdcOptedIn && balance.algo >= 0.2 && (
+                      <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'underline' }}>Get USDC ↗</a>
+                    )}
+                    {balance?.usdcOptedIn && balance.usdc < 0.001 && (
+                      <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer" style={{ color:'var(--primary)', textDecoration:'underline' }}>Get USDC ↗</a>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ padding:'10px 16px' }}>
+              <button onClick={() => { setOpen(false); onDisconnect(); }} style={{ width:'100%', padding:'8px', fontSize:13, borderRadius:8, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor:'pointer' }}>Disconnect</button>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -272,6 +293,30 @@ function ForecastCard({ data, celebrate, txid }: { data: ForecastData; celebrate
   );
 }
 
+function QuoteCard({ data, celebrate, txid }: { data: QuoteData; celebrate: boolean; txid?: string }) {
+  return (
+    <div style={{ background:'var(--card)', border:'1px solid var(--success)', borderRadius:16, padding:24, boxShadow: celebrate ? '0 0 40px var(--success)66' : '0 0 24px var(--success-dim)', animation: celebrate ? 'celebrate 0.5s ease' : 'fadeIn 0.5s ease', transition:'box-shadow 0.6s ease' }}>
+      {celebrate && <div style={{ textAlign:'center', fontSize:11, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--success)', marginBottom:10 }}>✓ Payment successful</div>}
+      <div style={{ fontSize:36, textAlign:'center', marginBottom:16 }}>💬</div>
+      <blockquote style={{ fontSize:14, lineHeight:1.85, color:'var(--text)', fontStyle:'italic', textAlign:'center', marginBottom:16, padding:'0 8px' }}>
+        "{data.text}"
+      </blockquote>
+      <div style={{ textAlign:'center', marginBottom:8 }}>
+        <span style={{ fontSize:13, fontWeight:600, color:'var(--primary)' }}>— {data.author}</span>
+      </div>
+      <div style={{ textAlign:'center', marginBottom:16 }}>
+        <span style={{ fontSize:11, padding:'2px 10px', background:'var(--secondary-dim)', color:'var(--secondary)', borderRadius:20 }}>{data.category}</span>
+      </div>
+      <div style={{ background:'var(--success-dim)', border:'1px solid var(--success)33', borderRadius:8, padding:'8px 12px', fontSize:11, fontFamily:'var(--mono)', color:'var(--success)', textAlign:'center' }}>{data.paidVia}</div>
+      {txid && (
+        <a href={`${EXPLORER_BASE}/${txid}`} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, marginTop:12, padding:'8px', background:'var(--primary-dim)', border:'1px solid var(--primary)33', borderRadius:8, color:'var(--primary)', textDecoration:'none', fontSize:12, fontWeight:600 }}>
+          View on Lora ↗
+        </a>
+      )}
+    </div>
+  );
+}
+
 function EventLog({ events, elapsed }: { events: BuyEvent[]; elapsed: number | null }) {
   return (
     <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden', fontFamily:'var(--mono)', fontSize:12, height:'100%', display:'flex', flexDirection:'column' }}>
@@ -295,9 +340,138 @@ function EventLog({ events, elapsed }: { events: BuyEvent[]; elapsed: number | n
   );
 }
 
+function PastLogsAccordion({ logs }: { logs: PurchaseLog[] }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  if (logs.length === 0) return null;
+  return (
+    <div style={{ marginTop:12 }}>
+      <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:8, padding:'0 2px' }}>Purchase log history</div>
+      {logs.map(log => (
+        <div key={log.id} style={{ marginBottom:4, border:'1px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
+          <button
+            onClick={() => setOpenId(openId === log.id ? null : log.id)}
+            style={{ width:'100%', padding:'8px 12px', display:'flex', alignItems:'center', gap:8, background:'var(--card)', border:'none', cursor:'pointer', textAlign:'left', color:'var(--text-dim)' }}>
+            <span style={{ fontSize:11 }}>{endpointIcon(log.endpoint)}</span>
+            <span style={{ fontSize:12, fontWeight:600, flex:1 }}>/{log.endpoint}</span>
+            <span style={{ fontSize:11, color:'var(--text-muted)' }}>{new Date(log.at).toLocaleTimeString()}</span>
+            <span style={{ fontSize:10, color:'var(--text-muted)', marginLeft:8 }}>{openId === log.id ? '▲' : '▼'}</span>
+          </button>
+          {openId === log.id && (
+            <div style={{ padding:'8px 12px 12px', background:'var(--bg)', fontFamily:'var(--mono)', fontSize:11 }}>
+              {log.events.map((e, i) => (
+                <div key={i} style={{ padding:'3px 0 3px 10px', color: eventColor(e.type), borderLeft:`2px solid ${eventColor(e.type)}`, marginLeft:4, marginBottom:2 }}>
+                  {eventLabel(e)}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SpendingChart({ purchases }: { purchases: Purchase[] }) {
+  if (purchases.length < 2) return null;
+  const BAR_H = 48;
+  const GAP = 3;
+  const barW = Math.min(28, Math.max(6, Math.floor((360 - purchases.length * GAP) / purchases.length)));
+
+  return (
+    <div style={{ marginBottom:20 }}>
+      <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:8 }}>Spend per request</div>
+      <div style={{ display:'flex', alignItems:'flex-end', gap:GAP, height:BAR_H + 4, overflowX:'auto', paddingBottom:2 }}>
+        {purchases.map((p, i) => {
+          const cost = p.endpoint === 'forecast' ? 0.005 : p.endpoint === 'quote' ? 0.002 : 0.001;
+          const h = Math.round((cost / 0.005) * BAR_H);
+          const color = p.endpoint === 'forecast' ? 'var(--secondary)' : p.endpoint === 'quote' ? 'var(--warning)' : 'var(--primary)';
+          return (
+            <div
+              key={i}
+              title={`/${p.endpoint} $${cost.toFixed(3)} USDC`}
+              style={{ width:barW, height:h, background:color, borderRadius:'3px 3px 0 0', opacity:0.8, flexShrink:0, transition:'opacity 0.2s', cursor:'default' }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '1'; }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '0.8'; }}
+            />
+          );
+        })}
+      </div>
+      <div style={{ display:'flex', gap:12, marginTop:6, flexWrap:'wrap' }}>
+        {(['weather', 'forecast', 'quote'] as Endpoint[]).filter(ep => purchases.some(p => p.endpoint === ep)).map(ep => (
+          <div key={ep} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-muted)' }}>
+            <span style={{ width:8, height:8, borderRadius:2, background: ep === 'forecast' ? 'var(--secondary)' : ep === 'quote' ? 'var(--warning)' : 'var(--primary)', display:'inline-block' }} />
+            {ep}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OnboardingStepper({ balance, optingIn, address }: { balance: WalletBalance | null; optingIn: boolean; address: string | null }) {
+  const steps = [
+    {
+      label: 'Fund wallet',
+      desc: 'Get testnet ALGO',
+      done: !!(balance?.accountExists && balance.algo >= 0.2),
+      active: !balance?.accountExists || (balance?.algo ?? 0) < 0.2,
+      link: 'https://bank.testnet.algorand.network',
+      linkText: 'ALGO faucet',
+    },
+    {
+      label: 'Opt in to USDC',
+      desc: optingIn ? 'Processing…' : 'Auto-triggered',
+      done: !!balance?.usdcOptedIn,
+      active: !!(balance?.accountExists && (balance?.algo ?? 0) >= 0.2 && !balance?.usdcOptedIn && !optingIn),
+      link: null,
+      linkText: null,
+    },
+    {
+      label: 'Get USDC',
+      desc: 'From Circle faucet',
+      done: !!(balance?.usdcOptedIn && (balance?.usdc ?? 0) >= 0.001),
+      active: !!(balance?.usdcOptedIn && (balance?.usdc ?? 0) < 0.001),
+      link: 'https://faucet.circle.com',
+      linkText: 'USDC faucet',
+    },
+  ];
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14 }}>
+      <div style={{ display:'flex', alignItems:'center' }}>
+        {steps.map((step, i) => (
+          <div key={i} style={{ display:'flex', alignItems:'center' }}>
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, width:110 }}>
+              <div style={{ width:36, height:36, borderRadius:'50%', border:`2px solid ${step.done ? 'var(--success)' : step.active ? 'var(--primary)' : 'var(--border)'}`, background: step.done ? 'var(--success-dim)' : step.active ? 'var(--primary-dim)' : 'var(--card)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700, color: step.done ? 'var(--success)' : step.active ? 'var(--primary)' : 'var(--text-muted)', transition:'all 0.3s', boxShadow: step.active ? '0 0 12px var(--primary-glow)' : 'none', animation: step.active ? 'pulse 1.5s ease-in-out infinite' : 'none' }}>
+                {step.done ? '✓' : i + 1}
+              </div>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontSize:11, fontWeight:600, color: step.done ? 'var(--success)' : step.active ? 'var(--primary)' : 'var(--text-muted)' }}>{step.label}</div>
+                <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:1 }}>{step.desc}</div>
+                {step.active && step.link && (
+                  <a href={step.link} target="_blank" rel="noreferrer" style={{ fontSize:10, color:'var(--primary)', textDecoration:'underline', marginTop:3, display:'block' }}>{step.linkText} ↗</a>
+                )}
+              </div>
+            </div>
+            {i < steps.length - 1 && (
+              <div style={{ width:32, height:2, background: step.done ? 'var(--success)' : 'var(--border)', marginBottom:28, transition:'background 0.3s', flexShrink:0 }} />
+            )}
+          </div>
+        ))}
+      </div>
+      {address && (
+        <div style={{ fontSize:11, color:'var(--text-muted)', fontFamily:'var(--mono)' }}>
+          {address.slice(0,10)}…{address.slice(-8)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
   if (purchases.length === 0) return null;
-  const totalSpent = purchases.reduce((sum, p) => sum + (p.endpoint === 'forecast' ? 0.005 : 0.001), 0);
+  const endpointPrice: Record<Endpoint, number> = { weather: 0.001, forecast: 0.005, quote: 0.002 };
+  const totalSpent = purchases.reduce((sum, p) => sum + endpointPrice[p.endpoint], 0);
   return (
     <section style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:20, flexWrap:'wrap', gap:8 }}>
@@ -316,6 +490,9 @@ function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
           )}
         </div>
       </div>
+
+      <SpendingChart purchases={purchases} />
+
       <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden' }}>
         <div className="purchase-grid purchase-header" style={{ padding:'10px 20px', borderBottom:'1px solid var(--border)', fontSize:11, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)' }}>
           {['Time','Endpoint','Result','Tx ID','Explorer'].map((h,i) => <span key={h} style={{ textAlign: i===4 ? 'right' : 'left' }}>{h}</span>)}
@@ -325,8 +502,10 @@ function PurchaseHistory({ purchases }: { purchases: Purchase[] }) {
             onMouseEnter={e => (e.currentTarget.style.background='var(--card-hover)')}
             onMouseLeave={e => (e.currentTarget.style.background='transparent')}>
             <span style={{ color:'var(--text-muted)', fontFamily:'var(--mono)', fontSize:11 }}>{new Date(p.purchasedAt).toLocaleTimeString()}</span>
-            <span style={{ fontWeight:500 }}>/{p.endpoint} <span style={{ color: p.endpoint === 'forecast' ? 'var(--secondary)' : 'var(--primary)', fontSize:11 }}>{p.endpoint === 'forecast' ? '$0.005' : '$0.001'}</span></span>
-            <span style={{ color:'var(--text-dim)', fontSize:12 }}>{p.weather?.city ?? p.forecast?.city ?? '—'}</span>
+            <span style={{ fontWeight:500 }}>/{p.endpoint} <span style={{ color: p.endpoint === 'forecast' ? 'var(--secondary)' : p.endpoint === 'quote' ? 'var(--warning)' : 'var(--primary)', fontSize:11 }}>${endpointPrice[p.endpoint].toFixed(3)}</span></span>
+            <span style={{ color:'var(--text-dim)', fontSize:12 }}>
+              {p.weather?.city ?? p.forecast?.city ?? (p.quote ? `"${p.quote.text.slice(0,20)}…"` : '—')}
+            </span>
             <span style={{ fontFamily:'var(--mono)', fontSize:11, color: p.txid ? 'var(--text-dim)' : 'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:16 }}>{p.txid ?? '—'}</span>
             <span style={{ textAlign:'right' }}>
               {p.txid
@@ -402,7 +581,7 @@ const response = await fetchWithPayment('https://your-api.com/endpoint');
 const data = await response.json();
 `.trim();
 
-  const sellerUrl = import.meta.env.VITE_SELLER_URL as string ?? 'http://localhost:4021';
+  const sellerUrl = (import.meta.env.VITE_SELLER_URL as string) ?? 'http://localhost:4021';
 
   return (
     <section className="content-section" style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 80px', boxSizing:'border-box' }}>
@@ -432,6 +611,7 @@ const data = await response.json();
         {[
           { method:'GET', path:'/weather',  price: health?.prices.weather  ?? '$0.001', desc:'Current conditions for a random city' },
           { method:'GET', path:'/forecast', price: health?.prices.forecast ?? '$0.005', desc:'7-day forecast for a random city' },
+          { method:'GET', path:'/quote',    price: health?.prices.quote    ?? '$0.002', desc:'Inspirational blockchain/tech quote' },
         ].map(ep => (
           <div key={ep.path} style={{ display:'grid', gridTemplateColumns:'auto 1fr auto', gap:12, alignItems:'center', marginBottom:10, padding:'8px 0', borderBottom:'1px solid var(--border)' }}>
             <span style={{ fontFamily:'var(--mono)', fontSize:12, padding:'4px 8px', background:'var(--primary-dim)', color:'var(--primary)', borderRadius:6, fontWeight:700 }}>{ep.method}</span>
@@ -444,7 +624,8 @@ const data = await response.json();
         ))}
         <div style={{ marginTop:4, padding:'10px 14px', background:'var(--bg)', borderRadius:8, fontSize:12, fontFamily:'var(--mono)', color:'var(--text-muted)', lineHeight:1.6 }}>
           /weather  → {'{ city, temperature, condition, humidity, paidVia, timestamp }'}<br/>
-          /forecast → {'{ city, days: [{ date, tempMax, tempMin, condition }], paidVia, timestamp }'}
+          /forecast → {'{ city, days: [{ date, tempMax, tempMin, condition }], paidVia, timestamp }'}<br/>
+          /quote    → {'{ text, author, category, paidVia, timestamp }'}
         </div>
       </div>
 
@@ -471,11 +652,11 @@ const data = await response.json();
         <div style={{ fontSize:12, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:16 }}>Ideas to build with x402 + Algorand</div>
         <div className="ideas-grid" style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
           {[
-            { emoji:'🤖', title:'AI API gateway',     body:'Charge per LLM call — no accounts, just USDC per token' },
-            { emoji:'📊', title:'Real-time data',     body:'Stock prices, sports scores, sensor data — pay per fetch' },
-            { emoji:'🗺️',  title:'Mapping / geo',     body:'Geocoding, routing, or satellite imagery on demand' },
-            { emoji:'🔐', title:'Secrets vault',      body:'Unlock an encrypted payload after a micro-payment' },
-            { emoji:'🎵', title:'Media streaming',    body:'Pay-per-minute audio/video without subscriptions' },
+            { emoji:'🤖', title:'AI API gateway',      body:'Charge per LLM call — no accounts, just USDC per token' },
+            { emoji:'📊', title:'Real-time data',      body:'Stock prices, sports scores, sensor data — pay per fetch' },
+            { emoji:'🗺️',  title:'Mapping / geo',      body:'Geocoding, routing, or satellite imagery on demand' },
+            { emoji:'🔐', title:'Secrets vault',       body:'Unlock an encrypted payload after a micro-payment' },
+            { emoji:'🎵', title:'Media streaming',     body:'Pay-per-minute audio/video without subscriptions' },
             { emoji:'📝', title:'Document generation', body:'PDFs, reports, or summaries billed per generation' },
           ].map(item => (
             <div key={item.title} style={{ padding:14, background:'var(--bg)', borderRadius:10, border:'1px solid var(--border)' }}>
@@ -494,16 +675,25 @@ const data = await response.json();
 
 export default function App() {
   const { status: authStatus, isConnected, error: authError, connect, disconnect, getAccount } = useWeb3Auth();
-  const { events, purchases, weather, forecast, loading, error: buyError, buy } = useBuyer();
+  const { events, purchaseLogs, purchases, weather, forecast, quote, loading, error: buyError, buy } = useBuyer();
   const [address, setAddress]       = useState<string | null>(null);
   const [balance, setBalance]       = useState<WalletBalance | null>(null);
   const [optingIn, setOptingIn]     = useState(false);
   const [heroCopied, setHeroCopied] = useState(false);
   const [celebrate, setCelebrate]   = useState(false);
-  const [elapsed, setElapsed]           = useState<number | null>(null);
+  const [elapsed, setElapsed]       = useState<number | null>(null);
   const [selectedEndpoint, setSelectedEndpoint] = useState<Endpoint>('weather');
-  const [health, setHealth]             = useState<SellerHealth | null>(null);
-  const startTimeRef    = useRef<number | null>(null);
+  const [health, setHealth]         = useState<SellerHealth | null>(null);
+  const [theme, setTheme]           = useState<'dark' | 'light'>(() =>
+    (localStorage.getItem('x402-theme') as 'dark' | 'light') ?? 'dark'
+  );
+  const startTimeRef = useRef<number | null>(null);
+
+  // Apply theme to html element and persist
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('x402-theme', theme);
+  }, [theme]);
 
   // Load wallet on connect / restore session
   useEffect(() => {
@@ -518,6 +708,15 @@ export default function App() {
       setBalance(null);
     }
   }, [isConnected, getAccount]);
+
+  // Balance auto-poll every 10s when connected
+  useEffect(() => {
+    if (!isConnected || !address) return;
+    const interval = setInterval(() => {
+      fetchWalletBalance(address).then(setBalance);
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [isConnected, address]);
 
   // Auto opt-in to USDC when wallet has enough ALGO
   useEffect(() => {
@@ -541,11 +740,11 @@ export default function App() {
 
   // Celebration on new data
   useEffect(() => {
-    if (!weather && !forecast) return;
+    if (!weather && !forecast && !quote) return;
     setCelebrate(true);
     const t = setTimeout(() => setCelebrate(false), 2500);
     return () => clearTimeout(t);
-  }, [weather, forecast]);
+  }, [weather, forecast, quote]);
 
   // Total purchase timer
   useEffect(() => {
@@ -567,13 +766,19 @@ export default function App() {
   const lastEventType = events.at(-1)?.type as StepId | undefined;
   const activeStep    = loading ? lastEventType ?? null : null;
   const lastTxid      = [...purchases].at(-1)?.txid;
-  const hasResult     = weather !== null || forecast !== null;
+  const hasResult     = weather !== null || forecast !== null || quote !== null;
+
+  const endpointPrice: Record<Endpoint, string> = {
+    weather:  health?.prices.weather  ?? '$0.001',
+    forecast: health?.prices.forecast ?? '$0.005',
+    quote:    health?.prices.quote    ?? '$0.002',
+  };
 
   const walletHint = balance === null ? undefined
-    : !balance.accountExists  ? 'Wallet not funded — get testnet ALGO from bank.testnet.algorand.network'
-    : !balance.usdcOptedIn && balance.algo < 0.2 ? 'Need at least 0.2 ALGO to auto opt-in to USDC'
-    : !balance.usdcOptedIn    ? (optingIn ? 'Opting in to USDC…' : 'Opt in to USDC (ASA 10458941) then fund with testnet USDC')
-    : balance.usdc < 0.001    ? 'Insufficient USDC balance'
+    : !balance.accountExists       ? 'Wallet not funded — get testnet ALGO'
+    : balance.algo < 0.2           ? 'Need at least 0.2 ALGO to auto opt-in to USDC'
+    : !balance.usdcOptedIn         ? (optingIn ? 'Opting in to USDC…' : 'Opt in to USDC then fund with testnet USDC')
+    : balance.usdc < 0.001         ? 'Insufficient USDC balance'
     : undefined;
 
   const handleBuy = useCallback(async () => {
@@ -581,9 +786,6 @@ export default function App() {
     if (account) buy(account, selectedEndpoint);
   }, [getAccount, buy, selectedEndpoint]);
 
-  const price       = selectedEndpoint === 'forecast'
-    ? (health?.prices.forecast ?? '$0.005')
-    : (health?.prices.weather  ?? '$0.001');
   const buyDisabled = loading || optingIn || (balance !== null && balance.usdc < 0.001);
 
   return (
@@ -592,12 +794,12 @@ export default function App() {
       {/* Seller offline banner */}
       {health?.online === false && (
         <div style={{ background:'rgba(251,191,36,0.1)', borderBottom:'1px solid var(--warning)44', padding:'8px 40px', fontSize:12, color:'var(--warning)', textAlign:'center' }}>
-          ⚠️ Seller API unreachable — purchases will fail. Check <code style={{ fontFamily:'var(--mono)' }}>VITE_SELLER_URL</code> in your environment.
+          Seller API unreachable — purchases will fail. Check <code style={{ fontFamily:'var(--mono)' }}>VITE_SELLER_URL</code>.
         </div>
       )}
 
       {/* Nav */}
-      <nav className="nav" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 40px', borderBottom:'1px solid var(--border)', position:'sticky', top:0, zIndex:10, background:'rgba(6,9,15,0.85)', backdropFilter:'blur(12px)', gap:12, flexWrap:'wrap' }}>
+      <nav className="nav" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 40px', borderBottom:'1px solid var(--border)', position:'sticky', top:0, zIndex:10, background:'var(--nav-bg)', backdropFilter:'blur(12px)', gap:12, flexWrap:'wrap' }}>
         <Logo />
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
           <Badge text="Testnet" color="var(--warning)" />
@@ -607,6 +809,13 @@ export default function App() {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
             GitHub
           </a>
+          {/* Theme toggle */}
+          <button
+            onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{ padding:'6px 10px', fontSize:14, borderRadius:20, border:'1px solid var(--border)', background:'var(--card)', color:'var(--text-dim)', cursor:'pointer', lineHeight:1 }}>
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
           <ConnectButton status={authStatus} onConnect={connect} onDisconnect={disconnect} address={address ?? undefined} walletHint={walletHint} balance={balance} />
         </div>
       </nav>
@@ -632,63 +841,51 @@ export default function App() {
               <>
                 <button onClick={connect} disabled={authStatus !== 'ready'}
                   style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: authStatus === 'ready' ? 'linear-gradient(135deg,var(--primary),#00a88a)' : 'var(--border)', color: authStatus === 'ready' ? '#001a15' : 'var(--text-muted)', cursor: authStatus === 'ready' ? 'pointer' : 'not-allowed', boxShadow: authStatus === 'ready' ? '0 0 24px var(--primary-glow)' : 'none', letterSpacing:'-0.01em', transition:'all 0.2s' }}>
-                  {authStatus === 'connecting' ? '⏳  Connecting…' : '🔐  Connect with Email to Buy'}
+                  {authStatus === 'connecting' ? 'Connecting…' : 'Connect with Email to Buy'}
                 </button>
                 <p style={{ fontSize:13, color:'var(--text-muted)' }}>Powered by Web3Auth — no seed phrase needed</p>
               </>
             )}
           </div>
         ) : (
-          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:16 }}>
             {/* Endpoint selector */}
-            <div style={{ display:'flex', gap:8, padding:4, background:'var(--card)', border:'1px solid var(--border)', borderRadius:12 }}>
-              {(['weather', 'forecast'] as Endpoint[]).map(ep => (
+            <div style={{ display:'flex', gap:8, padding:4, background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, flexWrap:'wrap', justifyContent:'center' }}>
+              {(['weather', 'forecast', 'quote'] as Endpoint[]).map(ep => (
                 <button key={ep} onClick={() => setSelectedEndpoint(ep)} style={{ padding:'8px 20px', fontSize:13, fontWeight:600, borderRadius:9, border:'none', background: selectedEndpoint === ep ? 'var(--primary)' : 'transparent', color: selectedEndpoint === ep ? '#001a15' : 'var(--text-muted)', cursor:'pointer', transition:'all 0.2s' }}>
-                  {ep === 'weather' ? '🌡️ Current' : '📅 7-day Forecast'}
-                  <span style={{ marginLeft:6, fontSize:11, opacity:0.8 }}>
-                    {ep === 'weather' ? (health?.prices.weather ?? '$0.001') : (health?.prices.forecast ?? '$0.005')}
-                  </span>
+                  {endpointIcon(ep)} {ep === 'weather' ? 'Current' : ep === 'forecast' ? '7-day' : 'Quote'}
+                  <span style={{ marginLeft:6, fontSize:11, opacity:0.8 }}>{endpointPrice[ep]}</span>
                 </button>
               ))}
             </div>
 
-            <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', justifyContent:'center' }}>
-              <button onClick={handleBuy} disabled={buyDisabled}
-                style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: buyDisabled ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: buyDisabled ? 'var(--text-muted)' : '#001a15', cursor: buyDisabled ? 'not-allowed' : 'pointer', boxShadow: buyDisabled ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em', transition:'all 0.2s' }}>
-                {loading ? '⏳  Purchasing…' : optingIn ? '⏳  Opting in to USDC…' : `⚡  Buy ${selectedEndpoint === 'forecast' ? 'Forecast' : 'Weather'} — ${price}`}
-              </button>
-            </div>
+            {/* Onboarding stepper or buy button */}
+            {walletHint ? (
+              <OnboardingStepper balance={balance} optingIn={optingIn} address={address} />
+            ) : (
+              <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', justifyContent:'center' }}>
+                <button onClick={handleBuy} disabled={buyDisabled}
+                  style={{ padding:'14px 36px', fontSize:16, fontWeight:600, borderRadius:12, border:'none', background: buyDisabled ? 'var(--border)' : 'linear-gradient(135deg,var(--primary),#00a88a)', color: buyDisabled ? 'var(--text-muted)' : '#001a15', cursor: buyDisabled ? 'not-allowed' : 'pointer', boxShadow: buyDisabled ? 'none' : '0 0 24px var(--primary-glow)', letterSpacing:'-0.01em', transition:'all 0.2s' }}>
+                  {loading ? 'Purchasing…' : optingIn ? 'Opting in to USDC…' : `Buy ${selectedEndpoint === 'forecast' ? 'Forecast' : selectedEndpoint === 'quote' ? 'Quote' : 'Weather'} — ${endpointPrice[selectedEndpoint]}`}
+                </button>
+              </div>
+            )}
 
-            {walletHint && (
-              balance?.usdcOptedIn && balance.usdc < 0.001 ? (
-                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
-                  <p style={{ fontSize:13, color:'var(--warning)', margin:0 }}>Insufficient USDC balance</p>
-                  {address && (
-                    <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 10px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:8 }}>
-                      <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text-muted)' }}>{address.slice(0,12)}…{address.slice(-8)}</span>
-                      <button onClick={() => { navigator.clipboard.writeText(address); setHeroCopied(true); setTimeout(() => setHeroCopied(false), 1500); }}
-                        style={{ fontSize:11, padding:'2px 8px', borderRadius:4, border:'1px solid var(--border)', background:'transparent', color: heroCopied ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer', transition:'color 0.2s' }}>
-                        {heroCopied ? '✓ Copied' : 'Copy'}
-                      </button>
-                      <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--primary)', textDecoration:'underline' }}>Get USDC ↗</a>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
-                  <p style={{ fontSize:13, color:'var(--warning)', margin:0 }}>{walletHint}</p>
-                  {address && (balance === null || !balance.accountExists || balance.algo < 0.2) && (
-                    <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 10px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:8 }}>
-                      <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text-muted)' }}>{address.slice(0,12)}…{address.slice(-8)}</span>
-                      <button onClick={() => { navigator.clipboard.writeText(address); setHeroCopied(true); setTimeout(() => setHeroCopied(false), 1500); }}
-                        style={{ fontSize:11, padding:'2px 8px', borderRadius:4, border:'1px solid var(--border)', background:'transparent', color: heroCopied ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer', transition:'color 0.2s' }}>
-                        {heroCopied ? '✓ Copied' : 'Copy'}
-                      </button>
-                      <a href="https://bank.testnet.algorand.network/" target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--primary)', textDecoration:'underline' }}>Get ALGO ↗</a>
-                    </div>
-                  )}
-                </div>
-              )
+            {/* USDC insufficient inline */}
+            {!walletHint && balance !== null && balance.usdc < 0.001 && balance.usdcOptedIn && (
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <p style={{ fontSize:13, color:'var(--warning)', margin:0 }}>Insufficient USDC</p>
+                {address && (
+                  <div style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:8 }}>
+                    <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text-muted)' }}>{address.slice(0,8)}…</span>
+                    <button onClick={() => { navigator.clipboard.writeText(address); setHeroCopied(true); setTimeout(() => setHeroCopied(false), 1500); }}
+                      style={{ fontSize:11, padding:'2px 8px', borderRadius:4, border:'1px solid var(--border)', background:'transparent', color: heroCopied ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer' }}>
+                      {heroCopied ? '✓' : 'Copy'}
+                    </button>
+                    <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--primary)', textDecoration:'underline' }}>Get USDC ↗</a>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -730,9 +927,13 @@ export default function App() {
       {/* Demo Panel */}
       <section className="content-section" style={{ maxWidth:900, margin:'0 auto', width:'100%', padding:'0 40px 48px', boxSizing:'border-box' }}>
         <div className={hasResult ? 'demo-grid-split' : 'demo-grid-full'} style={{ gap:16, minHeight:240 }}>
-          <EventLog events={events} elapsed={elapsed} />
+          <div style={{ display:'flex', flexDirection:'column', gap:0, minHeight:240 }}>
+            <EventLog events={events} elapsed={elapsed} />
+            <PastLogsAccordion logs={purchaseLogs} />
+          </div>
           {weather  && <WeatherCard  data={weather}  celebrate={celebrate} txid={lastTxid} />}
           {forecast && <ForecastCard data={forecast} celebrate={celebrate} txid={lastTxid} />}
+          {quote    && <QuoteCard    data={quote}    celebrate={celebrate} txid={lastTxid} />}
         </div>
       </section>
 
@@ -745,11 +946,11 @@ export default function App() {
         <div className="how-grid">
           {[
             { icon:'🔐', title:'1. Connect', body:'Sign in with your email via Web3Auth. A non-custodial Algorand wallet is derived from your credentials — no seed phrase.' },
-            { icon:'📡', title:'2. Request', body:'Buyer sends a plain GET /weather or /forecast. No auth header, no API key required.' },
+            { icon:'📡', title:'2. Request', body:'Buyer sends a plain GET /weather, /forecast, or /quote. No auth header, no API key required.' },
             { icon:'🔴', title:'3. 402 + Requirements', body:'Seller returns HTTP 402 with USDC amount, Algorand address, and facilitator URL.' },
             { icon:'✍️', title:'4. Sign & Retry', body:'Buyer signs an Algorand USDC transaction and retries with the proof in the header.' },
             { icon:'⛓️', title:'5. Settlement', body:'Goplausible facilitator verifies the transaction is on-chain before the seller responds.' },
-            { icon:'✅', title:'6. Data delivered', body:'Seller sends real weather data from Open-Meteo. One request = one payment. No subscriptions.' },
+            { icon:'✅', title:'6. Data delivered', body:'Seller sends real data — weather, forecast, or a quote. One request = one payment.' },
           ].map(item => (
             <div key={item.title} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:20 }}>
               <div style={{ fontSize:24, marginBottom:10 }}>{item.icon}</div>

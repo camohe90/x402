@@ -1,10 +1,8 @@
 // =============================================================================
 // BROWSER BUYER — x402 client hook for the React UI
 //
-// This hook is the browser-side equivalent of buyer/src/buyer.ts.
-// To adapt the UI to your own seller, change two things:
-//
-//   1. RESPONSE TYPES — replace WeatherData / ForecastData with your types
+// To adapt to your own seller, change:
+//   1. RESPONSE TYPES — replace WeatherData / ForecastData / QuoteData
 //   2. ENDPOINTS      — update the Endpoint union and buy() call paths
 //
 // The payment flow inside buy() is boilerplate — don't change it.
@@ -16,7 +14,7 @@ import { ExactAvmScheme } from '@x402/avm/exact/client';
 import { toClientAvmSigner, ALGORAND_TESTNET_CAIP2 } from '@x402/avm';
 import type { AlgorandAccount } from './useWeb3Auth';
 
-// ── CHANGE 1 — replace with your seller's response types ─────────────────────
+// ── Response types — replace with your seller's shapes ────────────────────────
 
 export interface WeatherData {
   city: string;
@@ -41,15 +39,32 @@ export interface ForecastData {
   timestamp: string;
 }
 
-// CHANGE 2 — update this union to match your seller's endpoints
-export type Endpoint = 'weather' | 'forecast';
+export interface QuoteData {
+  text: string;
+  author: string;
+  category: string;
+  paidVia: string;
+  timestamp: string;
+}
+
+// Update this union to match your seller's endpoints
+export type Endpoint = 'weather' | 'forecast' | 'quote';
 
 export interface Purchase {
   endpoint: Endpoint;
   weather?: WeatherData;
   forecast?: ForecastData;
+  quote?: QuoteData;
   txid?: string;
   purchasedAt: string;
+  latencyMs?: number;
+}
+
+export interface PurchaseLog {
+  id: string;
+  endpoint: Endpoint;
+  events: BuyEvent[];
+  at: string;
 }
 
 export type BuyEventType =
@@ -67,27 +82,47 @@ export interface BuyEvent {
   amount?: string;
   payTo?: string;
   txid?: string;
-  data?: WeatherData | ForecastData;
+  latencyMs?: number;
+  data?: WeatherData | ForecastData | QuoteData;
   message?: string;
 }
 
-const SELLER_URL = import.meta.env.VITE_SELLER_URL as string ?? 'http://localhost:4021';
+// ── Config ────────────────────────────────────────────────────────────────────
+
+const SELLER_URL = (import.meta.env.VITE_SELLER_URL as string) ?? 'http://localhost:4021';
+const PURCHASES_KEY = 'x402-purchases';
+
+function loadPurchases(): Purchase[] {
+  try {
+    const raw = localStorage.getItem(PURCHASES_KEY);
+    return raw ? (JSON.parse(raw) as Purchase[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePurchases(purchases: Purchase[]) {
+  try {
+    localStorage.setItem(PURCHASES_KEY, JSON.stringify(purchases.slice(-50)));
+  } catch { /* storage full — silently ignore */ }
+}
 
 // ── Health check ──────────────────────────────────────────────────────────────
 
 export interface SellerHealth {
   online: boolean;
-  prices: { weather: string; forecast: string };
+  prices: { weather: string; forecast: string; quote: string };
 }
 
 export async function checkSellerHealth(): Promise<SellerHealth> {
   try {
     const res = await fetch(`${SELLER_URL}/health`, { signal: AbortSignal.timeout(4000) });
-    if (!res.ok) return { online: false, prices: { weather: '$0.001', forecast: '$0.005' } };
+    if (!res.ok) return { online: false, prices: { weather: '$0.001', forecast: '$0.005', quote: '$0.002' } };
     const data = await res.json() as {
       endpoints?: {
         '/weather'?:  { price: string };
         '/forecast'?: { price: string };
+        '/quote'?:    { price: string };
       };
     };
     return {
@@ -95,125 +130,178 @@ export async function checkSellerHealth(): Promise<SellerHealth> {
       prices: {
         weather:  data.endpoints?.['/weather']?.price  ?? '$0.001',
         forecast: data.endpoints?.['/forecast']?.price ?? '$0.005',
+        quote:    data.endpoints?.['/quote']?.price    ?? '$0.002',
       },
     };
   } catch {
-    return { online: false, prices: { weather: '$0.001', forecast: '$0.005' } };
+    return { online: false, prices: { weather: '$0.001', forecast: '$0.005', quote: '$0.002' } };
   }
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useBuyer() {
-  const [events, setEvents]     = useState<BuyEvent[]>([]);
-  const [purchases, setPurchases] = useState<Purchase[]>([]);
-  const [weather, setWeather]   = useState<WeatherData | null>(null);
-  const [forecast, setForecast] = useState<ForecastData | null>(null);
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState<string | null>(null);
+  const [events, setEvents]           = useState<BuyEvent[]>([]);
+  const [purchaseLogs, setPurchaseLogs] = useState<PurchaseLog[]>([]);
+  const [purchases, setPurchases]     = useState<Purchase[]>(() => loadPurchases());
+  const [weather, setWeather]         = useState<WeatherData | null>(null);
+  const [forecast, setForecast]       = useState<ForecastData | null>(null);
+  const [quote, setQuote]             = useState<QuoteData | null>(null);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
 
   const addEvent = useCallback((e: BuyEvent) => {
-    setEvents((prev) => [...prev, e]);
+    setEvents(prev => [...prev, e]);
   }, []);
 
   const buy = useCallback(async (account: AlgorandAccount, endpoint: Endpoint = 'weather') => {
     if (loading) return;
-
     setLoading(true);
     setError(null);
     setEvents([]);
     setWeather(null);
     setForecast(null);
+    setQuote(null);
 
     const signer = toClientAvmSigner(account.privateKeyBase64);
-    const client = new x402Client().register(
-      ALGORAND_TESTNET_CAIP2,
-      new ExactAvmScheme(signer),
-    );
+    const client = new x402Client().register(ALGORAND_TESTNET_CAIP2, new ExactAvmScheme(signer));
 
-    let attempt = 0;
-    let lastTxid: string | undefined;
+    const MAX_RETRIES = 1;
+    let retryCount = 0;
 
-    const trackedFetch: typeof fetch = async (input, init) => {
-      attempt++;
+    while (retryCount <= MAX_RETRIES) {
+      let attempt = 0;
+      let lastTxid: string | undefined;
+      const buyStart = Date.now();
+      const currentEvents: BuyEvent[] = [];
 
-      if (attempt === 1) {
-        addEvent({ type: 'request_sent', endpoint });
-      } else {
-        addEvent({ type: 'payment_sent', endpoint });
-      }
+      // Wrapper so events go both to state and to the local snapshot for PurchaseLog
+      const emit = (e: BuyEvent) => {
+        currentEvents.push(e);
+        addEvent(e);
+      };
 
-      const res = await fetch(input, init);
-
-      if (res.status === 402) {
-        try {
-          // x402 v2: payment requirements are in the PAYMENT-REQUIRED header (base64 JSON)
-          const prHeader = res.headers.get('PAYMENT-REQUIRED') ?? res.headers.get('payment-required');
-          if (prHeader) {
-            const decoded = JSON.parse(Buffer.from(prHeader, 'base64').toString('utf-8')) as {
-              accepts?: Array<{ amount: string; payTo: string }>;
-            };
-            const req = decoded.accepts?.[0];
-            addEvent({ type: 'payment_required', endpoint, amount: req?.amount, payTo: req?.payTo });
-          } else {
-            addEvent({ type: 'payment_required', endpoint });
-          }
-        } catch {
-          addEvent({ type: 'payment_required', endpoint });
-        }
-        await pause(150);
-        addEvent({ type: 'payment_signing', endpoint });
-        await pause(150);
-      } else if (res.status === 200 && attempt > 1) {
-        try {
-          const header = res.headers.get('payment-response') ?? res.headers.get('PAYMENT-RESPONSE');
-          if (header) {
-            const decoded = JSON.parse(Buffer.from(header, 'base64').toString('utf-8')) as { transaction?: string };
-            lastTxid = decoded.transaction;
-          }
-        } catch {
-          // txid stays undefined
-        }
-        addEvent({ type: 'settlement_confirmed', endpoint, txid: lastTxid });
-      }
-
-      return res;
-    };
-
-    const fetchWithPayment = wrapFetchWithPayment(trackedFetch, client);
-
-    try {
-      const response = await fetchWithPayment(`${SELLER_URL}/${endpoint}`, { method: 'GET' });
-      if (response.ok) {
-        if (endpoint === 'weather') {
-          const data = await response.json() as WeatherData;
-          addEvent({ type: 'success', endpoint, data, txid: lastTxid });
-          setWeather(data);
-          setPurchases((prev) => [...prev, { endpoint, weather: data, txid: lastTxid, purchasedAt: new Date().toISOString() }]);
+      const trackedFetch: typeof fetch = async (input, init) => {
+        attempt++;
+        if (attempt === 1) {
+          emit({ type: 'request_sent', endpoint });
         } else {
-          const data = await response.json() as ForecastData;
-          addEvent({ type: 'success', endpoint, data, txid: lastTxid });
-          setForecast(data);
-          setPurchases((prev) => [...prev, { endpoint, forecast: data, txid: lastTxid, purchasedAt: new Date().toISOString() }]);
+          emit({ type: 'payment_sent', endpoint });
         }
-      } else {
-        const text = await response.text();
-        const msg = `Server returned ${response.status}: ${text}`;
-        addEvent({ type: 'error', endpoint, message: msg });
-        setError(msg);
+
+        const res = await fetch(input, init);
+
+        if (res.status === 402) {
+          try {
+            const prHeader = res.headers.get('PAYMENT-REQUIRED') ?? res.headers.get('payment-required');
+            if (prHeader) {
+              const decoded = JSON.parse(Buffer.from(prHeader, 'base64').toString('utf-8')) as {
+                accepts?: Array<{ amount: string; payTo: string }>;
+              };
+              const req = decoded.accepts?.[0];
+              emit({ type: 'payment_required', endpoint, amount: req?.amount, payTo: req?.payTo });
+            } else {
+              emit({ type: 'payment_required', endpoint });
+            }
+          } catch {
+            emit({ type: 'payment_required', endpoint });
+          }
+          await pause(150);
+          emit({ type: 'payment_signing', endpoint });
+          await pause(150);
+        } else if (res.status === 200 && attempt > 1) {
+          try {
+            const header = res.headers.get('payment-response') ?? res.headers.get('PAYMENT-RESPONSE');
+            if (header) {
+              const decoded = JSON.parse(Buffer.from(header, 'base64').toString('utf-8')) as { transaction?: string };
+              lastTxid = decoded.transaction;
+            }
+          } catch { /* txid stays undefined */ }
+          const latencyMs = Date.now() - buyStart;
+          emit({ type: 'settlement_confirmed', endpoint, txid: lastTxid, latencyMs });
+        }
+
+        return res;
+      };
+
+      const fetchWithPayment = wrapFetchWithPayment(trackedFetch, client);
+
+      try {
+        const response = await fetchWithPayment(`${SELLER_URL}/${endpoint}`, { method: 'GET' });
+
+        if (response.ok) {
+          const latencyMs = Date.now() - buyStart;
+
+          if (endpoint === 'weather') {
+            const data = await response.json() as WeatherData;
+            emit({ type: 'success', endpoint, data, txid: lastTxid });
+            setWeather(data);
+            setPurchases(prev => {
+              const next = [...prev, { endpoint, weather: data, txid: lastTxid, purchasedAt: new Date().toISOString(), latencyMs }];
+              savePurchases(next);
+              return next;
+            });
+          } else if (endpoint === 'forecast') {
+            const data = await response.json() as ForecastData;
+            emit({ type: 'success', endpoint, data, txid: lastTxid });
+            setForecast(data);
+            setPurchases(prev => {
+              const next = [...prev, { endpoint, forecast: data, txid: lastTxid, purchasedAt: new Date().toISOString(), latencyMs }];
+              savePurchases(next);
+              return next;
+            });
+          } else {
+            const data = await response.json() as QuoteData;
+            emit({ type: 'success', endpoint, data, txid: lastTxid });
+            setQuote(data);
+            setPurchases(prev => {
+              const next = [...prev, { endpoint, quote: data, txid: lastTxid, purchasedAt: new Date().toISOString(), latencyMs }];
+              savePurchases(next);
+              return next;
+            });
+          }
+
+          setPurchaseLogs(prev => [{
+            id: `${Date.now()}`,
+            endpoint,
+            events: [...currentEvents],
+            at: new Date().toISOString(),
+          }, ...prev].slice(0, 10));
+
+          break;
+        } else {
+          const text = await response.text();
+          const msg = `Server returned ${response.status}: ${text}`;
+          if (retryCount < MAX_RETRIES && attempt <= 1) {
+            emit({ type: 'error', endpoint, message: `${msg} — retrying...` });
+            retryCount++;
+            await pause(1500 * retryCount);
+          } else {
+            emit({ type: 'error', endpoint, message: msg });
+            setError(msg);
+            break;
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (retryCount < MAX_RETRIES && attempt <= 1) {
+          emit({ type: 'error', endpoint, message: `Network error — retrying... (${retryCount + 1})` });
+          retryCount++;
+          await pause(1500 * retryCount);
+        } else {
+          emit({ type: 'error', endpoint, message: msg });
+          setError(msg);
+          break;
+        }
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addEvent({ type: 'error', endpoint, message: msg });
-      setError(msg);
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
   }, [loading, addEvent]);
 
-  return { events, purchases, weather, forecast, loading, error, buy };
+  return { events, purchaseLogs, purchases, weather, forecast, quote, loading, error, buy };
 }
 
 function pause(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise(r => setTimeout(r, ms));
 }
