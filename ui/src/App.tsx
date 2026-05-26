@@ -173,17 +173,17 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
   const [copied, setCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Mnemonic state — all cleared when dropdown closes, never persisted anywhere
+  // Mnemonic state — words never enter the DOM until revealMnemonic() resolves.
+  // Everything wiped when the dropdown closes; nothing is ever persisted.
+  const [mnemonicOpen, setMnemonicOpen]       = useState(false);
   const [mnemonic, setMnemonic]               = useState<string | null>(null);
-  const [mnemonicRevealed, setMnemonicRevealed] = useState(false);
-  const [loadingMnemonic, setLoadingMnemonic]   = useState(false);
-  const [copiedMnemonic, setCopiedMnemonic]     = useState(false);
+  const [loadingMnemonic, setLoadingMnemonic] = useState(false);
+  const [copiedMnemonic, setCopiedMnemonic]   = useState(false);
 
   useEffect(() => {
     if (!open) {
-      // Wipe from memory the moment the dropdown closes
+      setMnemonicOpen(false);
       setMnemonic(null);
-      setMnemonicRevealed(false);
       setCopiedMnemonic(false);
     }
   }, [open]);
@@ -197,13 +197,16 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const loadMnemonic = async () => {
+  // Called only when user explicitly taps "Tap to reveal" — this is when words first enter the DOM
+  const revealMnemonic = async () => {
     if (!getMnemonic || loadingMnemonic) return;
     setLoadingMnemonic(true);
     const m = await getMnemonic();
     setMnemonic(m);
     setLoadingMnemonic(false);
   };
+
+  const hideMnemonic = () => { setMnemonic(null); setMnemonicOpen(false); };
 
   const copyMnemonic = () => {
     if (!mnemonic) return;
@@ -278,29 +281,26 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
                 </div>
               )}
             </div>
-            {/* Recovery phrase — tap-to-reveal, cleared on close */}
+            {/* Recovery phrase — words never enter the DOM until explicit reveal tap */}
             <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: mnemonic ? 10 : 0 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                 <div>
                   <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>Recovery Phrase</div>
-                  {!mnemonic && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>25-word Algorand mnemonic</div>}
+                  {!mnemonicOpen && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>25-word Algorand mnemonic</div>}
                 </div>
                 {!mnemonic ? (
                   <button
-                    onClick={loadMnemonic}
-                    disabled={loadingMnemonic}
-                    style={{ padding:'4px 10px', fontSize:11, borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor: loadingMnemonic ? 'wait' : 'pointer', whiteSpace:'nowrap', opacity: loadingMnemonic ? 0.6 : 1 }}>
-                    {loadingMnemonic ? 'Loading…' : 'Show'}
+                    onClick={() => mnemonicOpen ? hideMnemonic() : setMnemonicOpen(true)}
+                    style={{ padding:'4px 10px', fontSize:11, borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor:'pointer', whiteSpace:'nowrap' }}>
+                    {mnemonicOpen ? 'Cancel' : 'Show'}
                   </button>
                 ) : (
                   <div style={{ display:'flex', gap:6 }}>
-                    <button
-                      onClick={copyMnemonic}
+                    <button onClick={copyMnemonic}
                       style={{ padding:'4px 10px', fontSize:11, borderRadius:6, border:'1px solid var(--border)', background:'transparent', color: copiedMnemonic ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer', transition:'color 0.2s' }}>
                       {copiedMnemonic ? '✓ Copied' : 'Copy'}
                     </button>
-                    <button
-                      onClick={() => { setMnemonic(null); setMnemonicRevealed(false); }}
+                    <button onClick={hideMnemonic}
                       style={{ padding:'4px 10px', fontSize:11, borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor:'pointer' }}>
                       Hide
                     </button>
@@ -308,43 +308,33 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
                 )}
               </div>
 
-              {mnemonic && (() => {
-                const words = mnemonic.split(' ');
-                return (
-                  <>
-                    {/* Warning banner */}
-                    <div style={{ marginBottom:8, padding:'7px 10px', background:'rgba(239,68,68,0.08)', border:'1px solid #ef444433', borderRadius:7, fontSize:11, color:'var(--error)', lineHeight:1.6 }}>
-                      Anyone with these words controls this wallet. Never share them.
-                    </div>
+              {mnemonicOpen && (
+                <>
+                  <div style={{ marginTop:10, padding:'7px 10px', background:'rgba(239,68,68,0.08)', border:'1px solid #ef444433', borderRadius:7, fontSize:11, color:'var(--error)', lineHeight:1.6 }}>
+                    Anyone with these words controls this wallet. Never share them.
+                  </div>
 
-                    {/* Word grid — blurred until tapped */}
-                    <div
-                      style={{ position:'relative', cursor: mnemonicRevealed ? 'default' : 'pointer' }}
-                      onClick={() => { if (!mnemonicRevealed) setMnemonicRevealed(true); }}>
-                      <div style={{
-                        display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:4,
-                        filter: mnemonicRevealed ? 'none' : 'blur(5px)',
-                        userSelect: mnemonicRevealed ? 'text' : 'none',
-                        transition:'filter 0.25s ease',
-                      }}>
-                        {words.map((word, i) => (
-                          <div key={i} style={{ padding:'4px 6px', background:'var(--bg)', borderRadius:5, fontSize:11, fontFamily:'var(--mono)' }}>
-                            <span style={{ color:'var(--text-muted)', fontSize:10, marginRight:3 }}>{i + 1}.</span>
-                            <span style={{ color:'var(--text)', fontWeight:600 }}>{word}</span>
-                          </div>
-                        ))}
-                      </div>
-                      {!mnemonicRevealed && (
-                        <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
-                          <span style={{ fontSize:12, fontWeight:600, color:'var(--text)', background:'var(--card)', padding:'6px 14px', borderRadius:8, border:'1px solid var(--border)', boxShadow:'0 2px 8px rgba(0,0,0,0.3)' }}>
-                            Tap to reveal
-                          </span>
+                  {!mnemonic ? (
+                    /* "Tap to reveal" — nothing sensitive is in the DOM yet */
+                    <button
+                      onClick={revealMnemonic}
+                      disabled={loadingMnemonic}
+                      style={{ marginTop:10, width:'100%', padding:'10px', fontSize:12, fontWeight:600, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg)', color: loadingMnemonic ? 'var(--text-muted)' : 'var(--text)', cursor: loadingMnemonic ? 'wait' : 'pointer' }}>
+                      {loadingMnemonic ? 'Loading…' : 'Tap to reveal phrase'}
+                    </button>
+                  ) : (
+                    /* Words enter the DOM only here, after the user has explicitly tapped */
+                    <div style={{ marginTop:10, display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:4 }}>
+                      {mnemonic.split(' ').map((word, i) => (
+                        <div key={i} style={{ padding:'4px 6px', background:'var(--bg)', borderRadius:5, fontSize:11, fontFamily:'var(--mono)' }}>
+                          <span style={{ color:'var(--text-muted)', fontSize:10, marginRight:3 }}>{i + 1}.</span>
+                          <span style={{ color:'var(--text)', fontWeight:600 }}>{word}</span>
                         </div>
-                      )}
+                      ))}
                     </div>
-                  </>
-                );
-              })()}
+                  )}
+                </>
+              )}
             </div>
 
             <div style={{ padding:'10px 16px' }}>
