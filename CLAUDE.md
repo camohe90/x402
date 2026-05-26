@@ -45,13 +45,18 @@ Browser (ui/)
 buyer/src/server.ts   — Hono SSE server; streams BuyerEvents to the UI
 buyer/src/buyer.ts    — x402 client logic: hits seller, handles 402, signs, retries
 
-seller/src/index.ts   — Hono server with two paid endpoints:
-                         GET /weather  — current conditions ($0.001 USDC, env: SELLER_WEATHER_PRICE)
-                         GET /forecast — 7-day forecast    ($0.005 USDC, env: SELLER_FORECAST_PRICE)
-                         Both use Open-Meteo (free, no API key) for real weather data
+seller/src/index.ts   — Hono server with three paid endpoints + production features:
+                         GET  /weather  — current conditions ($0.001 USDC, env: SELLER_WEATHER_PRICE)
+                         GET  /forecast — 7-day forecast    ($0.005 USDC, env: SELLER_FORECAST_PRICE)
+                         POST /analyze  — POST body example ($0.002 USDC)
+                         Both GET endpoints use Open-Meteo (free, no API key) for real weather data
                          → returns HTTP 402 with payment requirements
                          → verifies payment via goplausible facilitator
                          → delivers data only after payment confirmed
+                         → rate-limits per IP (sliding window, no external deps)
+                         → idempotency cache: Map<txid, {body, expiresAt}>, 5-min expiry
+                         → persistent JSONL log: LOG_DIR/payments.jsonl (appendFileSync)
+                         → fire-and-forget webhook: POST to WEBHOOK_URL after settlement
 ```
 
 ### x402 Payment Flow
@@ -65,8 +70,21 @@ seller/src/index.ts   — Hono server with two paid endpoints:
 ### UI-specific architecture
 
 - **No backend for the browser** — the UI calls the seller directly via `VITE_SELLER_URL`
+- **App.tsx** is ~280 lines of pure state management and layout. All UI sections are extracted components under `src/components/`. Shared pure helpers live in `src/utils/format.ts`. Step/color/label constants live in `src/constants.ts`.
+- **Component map**:
+  - `ConnectButton.tsx` — wallet dropdown with QR, balances, mnemonic reveal, manual refresh
+  - `OnboardingStepper.tsx` — 3-step Fund/Opt-in/Get-USDC guide (shown only when balance insufficient)
+  - `FlowSteps.tsx` — animated protocol flow visualization
+  - `EventLog.tsx` — real-time SSE event stream panel
+  - `SpendingChart.tsx` — donut chart + cumulative stats
+  - `PurchaseHistory.tsx` — paginated purchase table (8 rows/page)
+  - `ResultCard.tsx` — weather/forecast/generic result display
+  - `BuildOnThis.tsx` — endpoint docs, code snippets, hackathon ideas grid
+  - `Logo.tsx`, `Skeleton.tsx` — layout atoms
 - **Web3Auth** (`@web3auth/modal` v10) is instantiated directly as a class, not via React provider. Instance lives in `useRef` inside `useWeb3Auth`. Critical: pass `initialState: { currentChainId: 'algorand:testnet', ... }` as the second constructor argument — without it the EIP155 chain becomes `chains[0]` and triggers a null `wsEmbedInstance` crash.
 - **Key format**: Web3Auth returns a hex private key → sliced to 32 bytes (seed) → nacl produces a 64-byte `secretKey` (seed+pubkey concatenated). `privateKeyBase64` throughout the codebase is this 64-byte value encoded as base64.
+- **Mnemonic export**: `getMnemonic()` in `useWeb3Auth.ts` re-derives the key from the provider and calls `algosdk.secretKeyToMnemonic(secretKey)`. Words never enter the DOM until the user taps "Tap to reveal phrase" — DOM-gated, not CSS-blurred. Cleared from state when the dropdown closes.
+- **Balance stability**: `guardedSetBalance` in `App.tsx` prevents network-error zero-states from overwriting a known-good balance. `getAccount` is wrapped in `useCallback([provider])` to prevent runaway `useEffect` re-fires.
 - **AVM signer for x402**: `toClientAvmSigner(account.privateKeyBase64)` from `@x402/avm`
 - **AVM signer for algokit-utils**: build a `RawEd25519Signer` with `nacl.sign.detached`, wrap with `generateAddressWithSigners` from `@algorandfoundation/algokit-utils/transact`, then `algorand.account.setSigner`
 
@@ -91,6 +109,10 @@ Root `.env` (seller + buyer):
 | `UI_ORIGIN` | seller | — | Deployed UI origin for CORS (e.g. `https://ui-vert-five.vercel.app`) |
 | `SELLER_WEATHER_PRICE` | seller | `0.001` | Price in USD for `/weather` (plain decimal, no `$`) |
 | `SELLER_FORECAST_PRICE` | seller | `0.005` | Price in USD for `/forecast` (plain decimal, no `$`) |
+| `WEBHOOK_URL` | seller | — | URL for fire-and-forget POST after each paid request |
+| `LOG_DIR` | seller | `./logs` | Directory for `payments.jsonl`; set to `''` to disable |
+| `RATE_LIMIT_RPM` | seller | `30` | Max requests per minute per IP |
+| `RATE_LIMIT_WINDOW_MS` | seller | `60000` | Sliding window duration in ms |
 
 UI env (set in Vercel dashboard or `ui/.env.local`):
 

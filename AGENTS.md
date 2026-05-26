@@ -4,9 +4,9 @@
 
 This is an **x402 demo** — three services demonstrating HTTP 402 micropayments on Algorand Testnet using USDC:
 
-- **`seller/`** — Hono server, exposes `GET /weather` and `GET /forecast` behind x402 `paymentMiddleware`
+- **`seller/`** — Hono server, exposes `GET /weather`, `GET /forecast`, and `POST /analyze` behind x402 `paymentMiddleware`; includes rate limiting, idempotency, persistent JSONL log, and webhook
 - **`buyer/`** — Hono SSE server + x402 client, streams purchase events
-- **`ui/`** — React + Vite SPA, deployed on Vercel, uses Web3Auth for email-based wallets
+- **`ui/`** — React + Vite SPA (Vercel), Web3Auth email-based wallet; components split into `src/components/`, pure helpers in `src/utils/format.ts`, constants in `src/constants.ts`
 
 See `CLAUDE.md` for commands, environment variables, architecture details, and the ngrok workflow for connecting the deployed UI to a local seller.
 
@@ -101,3 +101,9 @@ Client                  Resource Server           Facilitator           Algorand
 - **USDC opt-in**: auto-triggered when wallet has ≥ 0.2 ALGO — uses `algorand.send.assetOptIn()` from algokit-utils
 - **CORS**: seller allows `*.vercel.app` and `UI_ORIGIN` env var; browser must use a public seller URL (ngrok for local dev)
 - **Public facilitator URL:** `https://facilitator.goplausible.xyz`
+- **Mnemonic export**: `getMnemonic()` in `useWeb3Auth.ts` calls `algosdk.secretKeyToMnemonic(secretKey)`; words are DOM-gated (never rendered until explicit reveal tap)
+- **Balance stability**: `guardedSetBalance` in `App.tsx` prevents network-error zero-states from overwriting a known-good balance; `getAccount` is `useCallback([provider])` to avoid runaway effects
+- **Rate limiting**: in-memory sliding window (no external dep) — `RATE_LIMIT_RPM` req/min per IP; middleware registered per-route before `paymentMiddleware`
+- **Idempotency**: `Map<txid, {body, expiresAt}>` keyed on `X-PAYMENT` txid, 5-min expiry (Algorand tx validity window)
+- **Logging**: `appendFileSync` to `LOG_DIR/payments.jsonl`; `mkdirSync` on startup; disabled when `LOG_DIR=''`
+- **Webhook**: fire-and-forget `fetch(WEBHOOK_URL, { method: 'POST', body: JSON.stringify(payload) }).catch(...)` — never blocks the response

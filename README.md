@@ -19,15 +19,22 @@ The point isn't the weather data — it's the pattern. Any API can become a pay-
 Browser (React + Web3Auth)
   └── pays seller directly via x402 for each request
 
-seller/  — Hono server with two paid endpoints:
-             GET /weather  — current conditions, $0.001 USDC per request
-             GET /forecast — 7-day forecast,     $0.005 USDC per request
+seller/  — Hono server with paid endpoints + production features:
+             GET  /weather  — current conditions, $0.001 USDC per request
+             GET  /forecast — 7-day forecast,     $0.005 USDC per request
+             POST /analyze  — POST body example,  $0.002 USDC per request
+             + rate limiting, idempotency, persistent JSONL log, webhook
+
 ui/      — React + Vite SPA, deployed on Vercel
+             src/components/  — 10 extracted components
+             src/hooks/       — useWeb3Auth, useBuyer
+             src/utils/       — pure format helpers
+             src/constants.ts — STEPS, colors, labels
 
 buyer/   — local testing only (see below)
 ```
 
-The `seller` exposes `GET /weather` and `GET /forecast` behind USDC paywalls. Any client that sends a valid x402 payment proof gets the data. The `ui` demonstrates a browser-based buyer using Web3Auth (email login, no seed phrase).
+The `seller` exposes paid endpoints behind USDC paywalls. Any client that sends a valid x402 payment proof gets the data. The `ui` demonstrates a browser-based buyer using Web3Auth (email login, no seed phrase) with mnemonic export support.
 
 ---
 
@@ -70,7 +77,11 @@ Edit `.env` (in the repo root):
 | `BUYER_MNEMONIC` | ⚠️ optional | 25-word mnemonic — only needed if running the buyer server |
 | `FACILITATOR_URL` | — | Default: `https://facilitator.goplausible.xyz` |
 | `SELLER_WEATHER_PRICE` | — | Default: `0.001` (plain decimal USD, no `$`) |
-| `SELLER_FORECAST_PRICE` | — | Default: `0.005` (plain decimal USD, no `$`)  |
+| `SELLER_FORECAST_PRICE` | — | Default: `0.005` (plain decimal USD, no `$`) |
+| `WEBHOOK_URL` | — | URL called with a POST after each paid request (fire-and-forget) |
+| `LOG_DIR` | — | Default: `./logs` — directory for `payments.jsonl`; set to `''` to disable |
+| `RATE_LIMIT_RPM` | — | Default: `30` — max requests per minute per IP |
+| `RATE_LIMIT_WINDOW_MS` | — | Default: `60000` — rate-limit window in milliseconds |
 
 ### 3. Run locally
 
@@ -94,33 +105,38 @@ npm run buyer:server    # optional — port 4022, requires BUYER_MNEMONIC
 ### Protect any endpoint (seller side)
 
 ```typescript
-// seller/src/index.ts
+// seller/src/index.ts — three labeled CHANGE comments guide you
 import { paymentMiddleware, x402ResourceServer } from '@x402/hono';
 import { HTTPFacilitatorClient } from '@x402/core/server';
 import { ExactAvmScheme } from '@x402/avm/exact/server';
 import { ALGORAND_TESTNET_CAIP2 } from '@x402/avm';
 
-const facilitator = new HTTPFacilitatorClient({ url: 'https://facilitator.goplausible.xyz' });
+const facilitator = new HTTPFacilitatorClient({ url: process.env.FACILITATOR_URL });
 const resourceServer = new x402ResourceServer(facilitator)
   .register(ALGORAND_TESTNET_CAIP2, new ExactAvmScheme());
 
-// Define your routes — this is all you need to add a paywall
+// CHANGE 1 — set your price per request
+const MY_PRICE = `$${process.env.MY_PRICE ?? '0.001'}`;
+
+// CHANGE 2 — rename the route to your endpoint
 const routes = {
   'GET /your-endpoint': {
     accepts: {
       scheme: 'exact',
       network: ALGORAND_TESTNET_CAIP2,
       payTo: process.env.SELLER_ADDRESS,
-      price: '$0.001',           // any USD amount
+      price: MY_PRICE,
     },
   },
 };
 
 app.use(paymentMiddleware(routes, resourceServer));
 
-// Your route — only reachable after a valid payment
+// CHANGE 3 — replace handler with your data source
 app.get('/your-endpoint', (c) => c.json({ data: 'your data here' }));
 ```
+
+The boilerplate in `seller/src/index.ts` also includes rate limiting, idempotency, persistent JSONL logs, and a webhook — keep or drop any of these as needed.
 
 ### Pay for any x402 endpoint (client side)
 
@@ -200,9 +216,9 @@ The x402 pattern works for anything where value should only be released after co
 - Anonymous surveys — respondents earn USDC for completing surveys, no account required
 
 In every case the core files to touch are:
-- **`seller/src/index.ts`** — swap the `/weather` route, price, and handler for your own endpoint (three labeled `CHANGE` comments guide you)
+- **`seller/src/index.ts`** — swap the route, price, and handler (three `CHANGE` comments guide you)
 - **`ui/src/hooks/useBuyer.ts`** — update the `Endpoint` union, response interfaces, and `buy()` handler to match your new endpoint
-- **`ui/src/App.tsx`** — replace `WeatherCard` / `ForecastCard` with a component that renders your response shape; the rest of the UI (event log, purchase history, protocol flow) is reusable as-is
+- **`ui/src/components/ResultCard.tsx`** — replace with a component that renders your response shape; the rest of the UI (event log, purchase history, protocol flow, spending chart) is reusable as-is
 
 ---
 
