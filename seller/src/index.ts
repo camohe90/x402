@@ -1,8 +1,10 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
+import { appendFileSync, mkdirSync } from 'fs';
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { serve } from '@hono/node-server';
 import { cors } from 'hono/cors';
 import { paymentMiddleware, x402ResourceServer, type Network } from '@x402/hono';
@@ -18,16 +20,19 @@ import { ALGORAND_TESTNET_CAIP2 } from '@x402/avm';
 //   2. ROUTES      — rename 'GET /weather' to your endpoint(s)
 //   3. HANDLERS    — replace the weather/forecast logic with your own data
 //
-// Everything else (facilitator setup, middleware, CORS) is boilerplate.
+// Everything else (facilitator setup, middleware, CORS, rate-limiting, logging,
+// webhook) is boilerplate you can keep or drop as needed.
 // =============================================================================
 
 // ── Environment ───────────────────────────────────────────────────────────────
 
-const SELLER_ADDRESS  = process.env.SELLER_ADDRESS;        // your Algorand address
+const SELLER_ADDRESS  = process.env.SELLER_ADDRESS;
 const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitator.goplausible.xyz';
 const PORT            = Number(process.env.PORT ?? 4021);
+const WEBHOOK_URL     = process.env.WEBHOOK_URL ?? '';        // optional — called after each paid request
+const LOG_DIR         = process.env.LOG_DIR ?? './logs';      // set to '' to disable file logging
 
-// CHANGE 1 — set your price per request (override via env var or edit directly)
+// CHANGE 1 — set your price per request
 const WEATHER_PRICE  = `$${process.env.SELLER_WEATHER_PRICE  ?? '0.001'}`;
 const FORECAST_PRICE = `$${process.env.SELLER_FORECAST_PRICE ?? '0.005'}`;
 
@@ -36,9 +41,110 @@ if (!SELLER_ADDRESS) {
   process.exit(1);
 }
 
+// ── Persistent JSON log ───────────────────────────────────────────────────────
+// Appends one JSON line per paid request to logs/payments.jsonl.
+// Set LOG_DIR='' in .env to disable. Safe to tail -f for real-time monitoring.
+
+type LogEntry = {
+  at: string;
+  endpoint: string;
+  method: string;
+  status: number;
+  txid?: string;
+  latencyMs: number;
+  ip?: string;
+};
+
+let logReady = false;
+if (LOG_DIR) {
+  try {
+    mkdirSync(LOG_DIR, { recursive: true });
+    logReady = true;
+  } catch (e) {
+    console.warn('[seller] Could not create log dir, file logging disabled:', e);
+  }
+}
+
+function logPayment(entry: LogEntry) {
+  if (!logReady) return;
+  try {
+    appendFileSync(`${LOG_DIR}/payments.jsonl`, JSON.stringify(entry) + '\n');
+  } catch { /* disk full or permission error — non-fatal */ }
+}
+
+// ── Webhook ───────────────────────────────────────────────────────────────────
+// After a paid request is successfully served, POSTs a JSON event to WEBHOOK_URL.
+// Set WEBHOOK_URL in .env to enable. Fire-and-forget — never blocks the response.
+
+type WebhookPayload = {
+  event: 'payment.settled';
+  at: string;
+  endpoint: string;
+  txid?: string;
+  payTo: string;
+  network: string;
+};
+
+function fireWebhook(payload: WebhookPayload) {
+  if (!WEBHOOK_URL) return;
+  fetch(WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(5000),
+  }).catch(err => console.warn('[seller] Webhook delivery failed:', err));
+}
+
+// ── Rate limiter ──────────────────────────────────────────────────────────────
+// Simple in-memory sliding-window rate limiter (no external dependency).
+// Default: 30 requests per minute per IP on paid endpoints.
+// Adjust RATE_LIMIT_RPM and RATE_LIMIT_WINDOW_MS in .env to tune.
+
+const RPM        = Number(process.env.RATE_LIMIT_RPM        ?? 30);
+const WINDOW_MS  = Number(process.env.RATE_LIMIT_WINDOW_MS  ?? 60_000);
+
+const rateBuckets = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const hits = (rateBuckets.get(ip) ?? []).filter(t => now - t < WINDOW_MS);
+  hits.push(now);
+  rateBuckets.set(ip, hits);
+  return hits.length > RPM;
+}
+
+// Prune stale buckets every minute to prevent unbounded memory growth
+setInterval(() => {
+  const cutoff = Date.now() - WINDOW_MS;
+  for (const [ip, hits] of rateBuckets) {
+    if (hits.every(t => t < cutoff)) rateBuckets.delete(ip);
+  }
+}, WINDOW_MS);
+
+// ── Idempotency ───────────────────────────────────────────────────────────────
+// The x402 facilitator already prevents double-settlement on-chain, but we also
+// track recent txids in memory to return cached responses for retried requests.
+// Entries expire after 5 minutes (the Algorand transaction validity window).
+
+const recentTxids = new Map<string, { body: unknown; expiresAt: number }>();
+
+function cacheResponse(txid: string, body: unknown) {
+  recentTxids.set(txid, { body, expiresAt: Date.now() + 5 * 60_000 });
+}
+function getCachedResponse(txid: string | undefined): unknown | null {
+  if (!txid) return null;
+  const entry = recentTxids.get(txid);
+  if (!entry || Date.now() > entry.expiresAt) return null;
+  return entry.body;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of recentTxids) {
+    if (now > v.expiresAt) recentTxids.delete(k);
+  }
+}, 60_000);
+
 // ── Demo data — replace with your own data source ────────────────────────────
-// This section fetches real weather from Open-Meteo (free, no API key).
-// Swap it out for whatever your API sells: AI responses, stock prices, etc.
 
 const CITIES = [
   { city: 'New York',      lat: 40.7128,  lon: -74.0060  },
@@ -48,7 +154,6 @@ const CITIES = [
   { city: 'Austin',        lat: 30.2672,  lon: -97.7431  },
 ];
 
-// WMO weather code → human-readable label (standard meteorology codes)
 const WMO: Record<number, string> = {
   0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
   45: 'Foggy', 48: 'Foggy',
@@ -91,9 +196,7 @@ async function fetchForecast(lat: number, lon: number) {
   return data.daily;
 }
 
-// ── Boilerplate: facilitator client with retry ────────────────────────────────
-// The facilitator verifies and settles payments on-chain. You don't need to
-// change this — just make sure FACILITATOR_URL is set in your .env.
+// ── Facilitator client with retry ─────────────────────────────────────────────
 
 async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 500): Promise<T> {
   try {
@@ -106,7 +209,6 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 500): 
 }
 
 const baseFacilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
-
 const facilitatorClient = {
   url: baseFacilitator.url,
   getSupported: () => baseFacilitator.getSupported(),
@@ -116,14 +218,12 @@ const facilitatorClient = {
     withRetry(() => baseFacilitator.settle(...args)),
 };
 
-// ── Boilerplate: x402 setup ───────────────────────────────────────────────────
-// Registers the Algorand payment scheme. No changes needed here.
+// ── x402 setup ────────────────────────────────────────────────────────────────
 
 const resourceServer = new x402ResourceServer(facilitatorClient)
   .register(ALGORAND_TESTNET_CAIP2, new ExactAvmScheme());
 
-// CHANGE 2 — rename the routes and set the price for each endpoint.
-// The key format is 'METHOD /path'. Add as many routes as you need.
+// CHANGE 2 — rename routes and set price for each endpoint
 const routes = {
   'GET /weather': {
     accepts: {
@@ -143,10 +243,19 @@ const routes = {
     },
     description: '7-day forecast for a random city — pay-per-request via x402',
   },
+  // CHANGE 2b — POST endpoint example (body-accepting paid route)
+  'POST /analyze': {
+    accepts: {
+      scheme:  'exact' as const,
+      network: ALGORAND_TESTNET_CAIP2 as Network,
+      payTo:   SELLER_ADDRESS as string,
+      price:   '$0.002',
+    },
+    description: 'Example POST endpoint — replace with your own processing logic',
+  },
 };
 
-// ── Boilerplate: Hono app + CORS ──────────────────────────────────────────────
-// Allows requests from localhost and Vercel. Add your own origin to UI_ORIGIN.
+// ── Hono app ──────────────────────────────────────────────────────────────────
 
 const app = new Hono();
 
@@ -157,16 +266,25 @@ app.use(cors({
       'http://localhost:4173',
       process.env.UI_ORIGIN,
     ].filter(Boolean) as string[];
-    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
-      return origin ?? '*';
-    }
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) return origin ?? '*';
     return null as unknown as string;
   },
-  // These headers must be exposed so the browser can read payment info
   exposeHeaders: ['PAYMENT-REQUIRED', 'payment-required', 'PAYMENT-RESPONSE', 'X-PAYMENT-RESPONSE'],
 }));
 
-// Logs every request — 💰 marks paid requests
+// Rate limiting on paid endpoints
+const rateLimitMiddleware = async (c: Context, next: () => Promise<void>) => {
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  if (isRateLimited(ip)) {
+    return c.json({ error: 'Too many requests — try again in a minute.' }, 429);
+  }
+  return next();
+};
+app.use('/weather',  rateLimitMiddleware);
+app.use('/forecast', rateLimitMiddleware);
+app.use('/analyze',  rateLimitMiddleware);
+
+// Request logger — marks paid requests with 💰
 app.use(async (c, next) => {
   const start = Date.now();
   await next();
@@ -175,7 +293,6 @@ app.use(async (c, next) => {
   console.log(`[seller] ${paid} ${c.req.method} ${c.req.path} → ${c.res.status} (${ms}ms)`);
 });
 
-// Boilerplate: attaches the x402 payment gate to all routes defined above
 app.use(paymentMiddleware(routes, resourceServer));
 
 // ── Free endpoints ────────────────────────────────────────────────────────────
@@ -188,6 +305,7 @@ app.get('/health', (c) =>
     endpoints: {
       '/weather':  { price: WEATHER_PRICE,  description: 'Current conditions for a random city' },
       '/forecast': { price: FORECAST_PRICE, description: '7-day forecast for a random city' },
+      '/analyze':  { price: '$0.002',        description: 'Example POST endpoint' },
     },
   }),
 );
@@ -196,9 +314,10 @@ app.get('/', (c) =>
   c.json({
     service: 'x402 Demo Seller Agent',
     endpoints: [
-      { path: '/weather',  method: 'GET', price: `${WEATHER_PRICE} USDC`,  description: 'Current weather data' },
-      { path: '/forecast', method: 'GET', price: `${FORECAST_PRICE} USDC`, description: '7-day forecast' },
-      { path: '/health',   method: 'GET', price: 'free',                    description: 'Health check' },
+      { path: '/weather',  method: 'GET',  price: `${WEATHER_PRICE} USDC`,  description: 'Current weather data' },
+      { path: '/forecast', method: 'GET',  price: `${FORECAST_PRICE} USDC`, description: '7-day forecast' },
+      { path: '/analyze',  method: 'POST', price: '$0.002 USDC',             description: 'Example POST endpoint' },
+      { path: '/health',   method: 'GET',  price: 'free',                    description: 'Health check' },
     ],
     facilitator: FACILITATOR_URL,
     payTo: SELLER_ADDRESS,
@@ -206,74 +325,127 @@ app.get('/', (c) =>
   }),
 );
 
+// ── Helper: extract txid from payment-response header ─────────────────────────
+
+function extractTxid(c: Context): string | undefined {
+  try {
+    const header = c.req.header('payment-response') ?? c.req.header('PAYMENT-RESPONSE');
+    if (!header) return undefined;
+    return (JSON.parse(Buffer.from(header, 'base64').toString('utf-8')) as { transaction?: string }).transaction;
+  } catch {
+    return undefined;
+  }
+}
+
 // ── CHANGE 3 — paid handlers ──────────────────────────────────────────────────
-// These run ONLY after a valid payment has been confirmed by the facilitator.
-// Replace the weather logic with whatever your API sells.
 
 app.get('/weather', async (c) => {
+  const start = Date.now();
+  const txid  = extractTxid(c);
+  const cached = getCachedResponse(txid);
+  if (cached) return c.json(cached);
+
   const { city, lat, lon } = randomCity();
+  let body: unknown;
   try {
     const current = await fetchCurrentWeather(lat, lon);
-    return c.json({
+    body = {
       city,
       temperature: Math.round(current.temperature_2m),
       condition:   WMO[current.weather_code] ?? 'Unknown',
       humidity:    current.relative_humidity_2m,
       timestamp:   new Date().toISOString(),
       paidVia:     'x402 / Algorand USDC Testnet',
-    });
+    };
   } catch (err) {
-    // Fallback if Open-Meteo is unavailable — buyer already paid, so return something
     console.error('[seller] Open-Meteo error, using fallback:', err);
-    return c.json({
+    body = {
       city,
       temperature: Math.round(60 + Math.random() * 40),
       condition:   'Partly Cloudy',
       humidity:    Math.round(50 + Math.random() * 30),
       timestamp:   new Date().toISOString(),
       paidVia:     'x402 / Algorand USDC Testnet (cached)',
-    });
+    };
   }
+
+  if (txid) cacheResponse(txid, body);
+  logPayment({ at: new Date().toISOString(), endpoint: '/weather', method: 'GET', status: 200, txid, latencyMs: Date.now() - start, ip: c.req.header('x-forwarded-for') });
+  fireWebhook({ event: 'payment.settled', at: new Date().toISOString(), endpoint: '/weather', txid, payTo: SELLER_ADDRESS as string, network: ALGORAND_TESTNET_CAIP2 });
+  return c.json(body);
 });
 
 app.get('/forecast', async (c) => {
+  const start = Date.now();
+  const txid  = extractTxid(c);
+  const cached = getCachedResponse(txid);
+  if (cached) return c.json(cached);
+
   const { city, lat, lon } = randomCity();
+  let body: unknown;
   try {
     const daily = await fetchForecast(lat, lon);
-    const days = daily.time.map((date, i) => ({
-      date,
-      tempMax:   Math.round(daily.temperature_2m_max[i]),
-      tempMin:   Math.round(daily.temperature_2m_min[i]),
-      condition: WMO[daily.weather_code[i]] ?? 'Unknown',
-    }));
-    return c.json({
+    body = {
       city,
-      days,
+      days: daily.time.map((date, i) => ({
+        date,
+        tempMax:   Math.round(daily.temperature_2m_max[i]),
+        tempMin:   Math.round(daily.temperature_2m_min[i]),
+        condition: WMO[daily.weather_code[i]] ?? 'Unknown',
+      })),
       timestamp: new Date().toISOString(),
       paidVia:   'x402 / Algorand USDC Testnet',
-    });
+    };
   } catch (err) {
-    // Fallback if Open-Meteo is unavailable — buyer already paid, so return something
     console.error('[seller] Open-Meteo forecast error, using fallback:', err);
     const today = new Date();
     const conditions = ['Clear Sky', 'Partly Cloudy', 'Overcast', 'Light Rain', 'Showers'];
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      return {
-        date:      d.toISOString().slice(0, 10),
-        tempMax:   Math.round(65 + Math.random() * 20),
-        tempMin:   Math.round(45 + Math.random() * 15),
-        condition: conditions[Math.floor(Math.random() * conditions.length)],
-      };
-    });
-    return c.json({
+    body = {
       city,
-      days,
+      days: Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(today);
+        d.setDate(today.getDate() + i);
+        return {
+          date:      d.toISOString().slice(0, 10),
+          tempMax:   Math.round(65 + Math.random() * 20),
+          tempMin:   Math.round(45 + Math.random() * 15),
+          condition: conditions[Math.floor(Math.random() * conditions.length)],
+        };
+      }),
       timestamp: new Date().toISOString(),
       paidVia:   'x402 / Algorand USDC Testnet (cached)',
-    });
+    };
   }
+
+  if (txid) cacheResponse(txid, body);
+  logPayment({ at: new Date().toISOString(), endpoint: '/forecast', method: 'GET', status: 200, txid, latencyMs: Date.now() - start, ip: c.req.header('x-forwarded-for') });
+  fireWebhook({ event: 'payment.settled', at: new Date().toISOString(), endpoint: '/forecast', txid, payTo: SELLER_ADDRESS as string, network: ALGORAND_TESTNET_CAIP2 });
+  return c.json(body);
+});
+
+// CHANGE 3b — POST endpoint example
+// Replace this handler with your own processing logic.
+// The request body is available at c.req.json() after payment is confirmed.
+app.post('/analyze', async (c) => {
+  const start = Date.now();
+  const txid  = extractTxid(c);
+  const cached = getCachedResponse(txid);
+  if (cached) return c.json(cached);
+
+  let input: unknown = {};
+  try { input = await c.req.json(); } catch { /* no body or invalid JSON */ }
+
+  const body = {
+    received: input,
+    result:   'Replace this handler with your own processing logic',
+    timestamp: new Date().toISOString(),
+    paidVia:  'x402 / Algorand USDC Testnet',
+  };
+
+  if (txid) cacheResponse(txid, body);
+  logPayment({ at: new Date().toISOString(), endpoint: '/analyze', method: 'POST', status: 200, txid, latencyMs: Date.now() - start, ip: c.req.header('x-forwarded-for') });
+  fireWebhook({ event: 'payment.settled', at: new Date().toISOString(), endpoint: '/analyze', txid, payTo: SELLER_ADDRESS as string, network: ALGORAND_TESTNET_CAIP2 });
+  return c.json(body);
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
@@ -284,6 +456,10 @@ serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`[seller]   Pay-to:      ${SELLER_ADDRESS}`);
   console.log(`[seller]   Network:     ${ALGORAND_TESTNET_CAIP2}`);
   console.log(`[seller]   Facilitator: ${FACILITATOR_URL}`);
-  console.log(`[seller]   /weather     ${WEATHER_PRICE} USDC`);
-  console.log(`[seller]   /forecast    ${FORECAST_PRICE} USDC\n`);
+  console.log(`[seller]   /weather     ${WEATHER_PRICE} USDC  (GET)`);
+  console.log(`[seller]   /forecast    ${FORECAST_PRICE} USDC (GET)`);
+  console.log(`[seller]   /analyze     $0.002 USDC (POST)`);
+  console.log(`[seller]   Rate limit:  ${RPM} req/min per IP`);
+  if (WEBHOOK_URL) console.log(`[seller]   Webhook:     ${WEBHOOK_URL}`);
+  if (logReady)    console.log(`[seller]   Log:         ${LOG_DIR}/payments.jsonl\n`);
 });
