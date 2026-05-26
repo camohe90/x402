@@ -10,7 +10,7 @@ import { cors } from 'hono/cors';
 import { paymentMiddleware, x402ResourceServer, type Network } from '@x402/hono';
 import { HTTPFacilitatorClient } from '@x402/core/server';
 import { ExactAvmScheme } from '@x402/avm/exact/server';
-import { ALGORAND_TESTNET_CAIP2 } from '@x402/avm';
+import { ALGORAND_TESTNET_CAIP2, ALGORAND_MAINNET_CAIP2 } from '@x402/avm';
 
 // =============================================================================
 // SELLER — x402 Resource Server
@@ -31,6 +31,9 @@ const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitator.gopl
 const PORT            = Number(process.env.PORT ?? 4021);
 const WEBHOOK_URL     = process.env.WEBHOOK_URL ?? '';        // optional — called after each paid request
 const LOG_DIR         = process.env.LOG_DIR ?? './logs';      // set to '' to disable file logging
+const NETWORK         = process.env.NETWORK ?? 'testnet';     // 'testnet' | 'mainnet'
+const NETWORK_CAIP2   = NETWORK === 'mainnet' ? ALGORAND_MAINNET_CAIP2 : ALGORAND_TESTNET_CAIP2;
+const NETWORK_LABEL   = NETWORK === 'mainnet' ? 'Algorand Mainnet' : 'Algorand Testnet';
 
 // CHANGE 1 — set your price per request
 const WEATHER_PRICE  = `$${process.env.SELLER_WEATHER_PRICE  ?? '0.001'}`;
@@ -221,14 +224,14 @@ const facilitatorClient = {
 // ── x402 setup ────────────────────────────────────────────────────────────────
 
 const resourceServer = new x402ResourceServer(facilitatorClient)
-  .register(ALGORAND_TESTNET_CAIP2, new ExactAvmScheme());
+  .register(NETWORK_CAIP2, new ExactAvmScheme());
 
 // CHANGE 2 — rename routes and set price for each endpoint
 const routes = {
   'GET /weather': {
     accepts: {
       scheme:  'exact' as const,
-      network: ALGORAND_TESTNET_CAIP2 as Network,
+      network: NETWORK_CAIP2 as Network,
       payTo:   SELLER_ADDRESS as string,
       price:   WEATHER_PRICE,
     },
@@ -237,7 +240,7 @@ const routes = {
   'GET /forecast': {
     accepts: {
       scheme:  'exact' as const,
-      network: ALGORAND_TESTNET_CAIP2 as Network,
+      network: NETWORK_CAIP2 as Network,
       payTo:   SELLER_ADDRESS as string,
       price:   FORECAST_PRICE,
     },
@@ -247,7 +250,7 @@ const routes = {
   'POST /analyze': {
     accepts: {
       scheme:  'exact' as const,
-      network: ALGORAND_TESTNET_CAIP2 as Network,
+      network: NETWORK_CAIP2 as Network,
       payTo:   SELLER_ADDRESS as string,
       price:   '$0.002',
     },
@@ -321,7 +324,7 @@ app.get('/', (c) =>
     ],
     facilitator: FACILITATOR_URL,
     payTo: SELLER_ADDRESS,
-    network: ALGORAND_TESTNET_CAIP2,
+    network: NETWORK_CAIP2,
   }),
 );
 
@@ -355,7 +358,7 @@ app.get('/weather', async (c) => {
       condition:   WMO[current.weather_code] ?? 'Unknown',
       humidity:    current.relative_humidity_2m,
       timestamp:   new Date().toISOString(),
-      paidVia:     'x402 / Algorand USDC Testnet',
+      paidVia:     `x402 / USDC ${NETWORK_LABEL}`,
     };
   } catch (err) {
     console.error('[seller] Open-Meteo error, using fallback:', err);
@@ -365,13 +368,13 @@ app.get('/weather', async (c) => {
       condition:   'Partly Cloudy',
       humidity:    Math.round(50 + Math.random() * 30),
       timestamp:   new Date().toISOString(),
-      paidVia:     'x402 / Algorand USDC Testnet (cached)',
+      paidVia:     `x402 / USDC ${NETWORK_LABEL} (cached)`,
     };
   }
 
   if (txid) cacheResponse(txid, body);
   logPayment({ at: new Date().toISOString(), endpoint: '/weather', method: 'GET', status: 200, txid, latencyMs: Date.now() - start, ip: c.req.header('x-forwarded-for') });
-  fireWebhook({ event: 'payment.settled', at: new Date().toISOString(), endpoint: '/weather', txid, payTo: SELLER_ADDRESS as string, network: ALGORAND_TESTNET_CAIP2 });
+  fireWebhook({ event: 'payment.settled', at: new Date().toISOString(), endpoint: '/weather', txid, payTo: SELLER_ADDRESS as string, network: NETWORK_CAIP2 });
   return c.json(body);
 });
 
@@ -394,7 +397,7 @@ app.get('/forecast', async (c) => {
         condition: WMO[daily.weather_code[i]] ?? 'Unknown',
       })),
       timestamp: new Date().toISOString(),
-      paidVia:   'x402 / Algorand USDC Testnet',
+      paidVia:   `x402 / USDC ${NETWORK_LABEL}`,
     };
   } catch (err) {
     console.error('[seller] Open-Meteo forecast error, using fallback:', err);
@@ -413,13 +416,13 @@ app.get('/forecast', async (c) => {
         };
       }),
       timestamp: new Date().toISOString(),
-      paidVia:   'x402 / Algorand USDC Testnet (cached)',
+      paidVia:   `x402 / USDC ${NETWORK_LABEL} (cached)`,
     };
   }
 
   if (txid) cacheResponse(txid, body);
   logPayment({ at: new Date().toISOString(), endpoint: '/forecast', method: 'GET', status: 200, txid, latencyMs: Date.now() - start, ip: c.req.header('x-forwarded-for') });
-  fireWebhook({ event: 'payment.settled', at: new Date().toISOString(), endpoint: '/forecast', txid, payTo: SELLER_ADDRESS as string, network: ALGORAND_TESTNET_CAIP2 });
+  fireWebhook({ event: 'payment.settled', at: new Date().toISOString(), endpoint: '/forecast', txid, payTo: SELLER_ADDRESS as string, network: NETWORK_CAIP2 });
   return c.json(body);
 });
 
@@ -439,12 +442,12 @@ app.post('/analyze', async (c) => {
     received: input,
     result:   'Replace this handler with your own processing logic',
     timestamp: new Date().toISOString(),
-    paidVia:  'x402 / Algorand USDC Testnet',
+    paidVia:  `x402 / USDC ${NETWORK_LABEL}`,
   };
 
   if (txid) cacheResponse(txid, body);
   logPayment({ at: new Date().toISOString(), endpoint: '/analyze', method: 'POST', status: 200, txid, latencyMs: Date.now() - start, ip: c.req.header('x-forwarded-for') });
-  fireWebhook({ event: 'payment.settled', at: new Date().toISOString(), endpoint: '/analyze', txid, payTo: SELLER_ADDRESS as string, network: ALGORAND_TESTNET_CAIP2 });
+  fireWebhook({ event: 'payment.settled', at: new Date().toISOString(), endpoint: '/analyze', txid, payTo: SELLER_ADDRESS as string, network: NETWORK_CAIP2 });
   return c.json(body);
 });
 
@@ -454,7 +457,7 @@ serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`\n[seller] x402 Resource Server ready`);
   console.log(`[seller]   URL:         http://localhost:${PORT}`);
   console.log(`[seller]   Pay-to:      ${SELLER_ADDRESS}`);
-  console.log(`[seller]   Network:     ${ALGORAND_TESTNET_CAIP2}`);
+  console.log(`[seller]   Network:     ${NETWORK_LABEL} (${NETWORK_CAIP2})`);
   console.log(`[seller]   Facilitator: ${FACILITATOR_URL}`);
   console.log(`[seller]   /weather     ${WEATHER_PRICE} USDC  (GET)`);
   console.log(`[seller]   /forecast    ${FORECAST_PRICE} USDC (GET)`);

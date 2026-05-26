@@ -10,7 +10,10 @@ export const STEPS = [
 export type StepId    = typeof STEPS[number]['id'];
 export type StepColor = typeof STEPS[number]['color'];
 
-export const EXPLORER_BASE = 'https://lora.algokit.io/testnet/transaction';
+const IS_MAINNET = import.meta.env.VITE_NETWORK === 'mainnet';
+export const EXPLORER_BASE = IS_MAINNET
+  ? 'https://lora.algokit.io/mainnet/transaction'
+  : 'https://lora.algokit.io/testnet/transaction';
 export const GITHUB_URL    = 'https://github.com/camohe90/x402';
 
 export const CONDITION_ICON: Record<string, string> = {

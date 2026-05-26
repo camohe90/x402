@@ -1,7 +1,7 @@
 import algosdk from 'algosdk';
 import { wrapFetchWithPayment, x402Client } from '@x402/fetch';
 import { ExactAvmScheme } from '@x402/avm/exact/client';
-import { toClientAvmSigner, ALGORAND_TESTNET_CAIP2 } from '@x402/avm';
+import { toClientAvmSigner, ALGORAND_TESTNET_CAIP2, ALGORAND_MAINNET_CAIP2 } from '@x402/avm';
 
 // =============================================================================
 // BUYER — x402 Client Agent (server-side)
@@ -58,8 +58,9 @@ export async function buyWeather(
   onEvent({ type: 'start', address: String(account.addr), sellerUrl });
 
   // Boilerplate: create x402 client with Algorand USDC payment scheme
+  const networkCaip2 = process.env.NETWORK === 'mainnet' ? ALGORAND_MAINNET_CAIP2 : ALGORAND_TESTNET_CAIP2;
   const client = new x402Client().register(
-    ALGORAND_TESTNET_CAIP2,
+    networkCaip2,
     new ExactAvmScheme(signer),
   );
 

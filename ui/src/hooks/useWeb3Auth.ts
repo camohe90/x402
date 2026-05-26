@@ -7,6 +7,7 @@ import algosdk from 'algosdk';
 import { AlgorandClient } from '@algorandfoundation/algokit-utils';
 import { generateAddressWithSigners } from '@algorandfoundation/algokit-utils/transact';
 import type { RawEd25519Signer } from '@algorandfoundation/algokit-utils/crypto';
+import { USDC_MAINNET_ASA_ID, USDC_TESTNET_ASA_ID } from '@x402/avm';
 
 export interface AlgorandAccount {
   address: string;
@@ -22,7 +23,9 @@ export interface WalletBalance {
 
 export type Web3AuthStatus = 'idle' | 'initializing' | 'ready' | 'connecting' | 'connected' | 'error';
 
-const USDC_ASSET_ID = 10458941;
+const IS_MAINNET    = import.meta.env.VITE_NETWORK === 'mainnet';
+const USDC_ASSET_ID = IS_MAINNET ? Number(USDC_MAINNET_ASA_ID) : Number(USDC_TESTNET_ASA_ID);
+const algorandClient = () => IS_MAINNET ? AlgorandClient.mainNet() : AlgorandClient.testNet();
 
 export async function optInToUSDC(address: string, privateKeyBase64: string): Promise<void> {
   const sk = new Uint8Array(Buffer.from(privateKeyBase64, 'base64')); // 64-byte nacl secret key
@@ -32,14 +35,14 @@ export async function optInToUSDC(address: string, privateKeyBase64: string): Pr
 
   const { signer } = generateAddressWithSigners({ ed25519Pubkey, rawEd25519Signer });
 
-  const algorand = AlgorandClient.testNet();
+  const algorand = algorandClient();
   algorand.account.setSigner(address, signer);
   await algorand.send.assetOptIn({ sender: address, assetId: BigInt(USDC_ASSET_ID) });
 }
 
 export async function fetchWalletBalance(address: string): Promise<WalletBalance> {
   try {
-    const algorand = AlgorandClient.testNet();
+    const algorand = algorandClient();
     const info = await algorand.account.getInformation(address);
     const usdcAsset = info.assets?.find(a => a.assetId === BigInt(USDC_ASSET_ID));
     return {
@@ -57,13 +60,13 @@ export async function fetchWalletBalance(address: string): Promise<WalletBalance
 function buildWeb3Auth(includeStoredSession = true) {
   const chainConfig = {
     chainNamespace: CHAIN_NAMESPACES.OTHER,
-    chainId: 'algorand:testnet',
-    displayName: 'Algorand Testnet',
+    chainId:         IS_MAINNET ? 'algorand:mainnet'                     : 'algorand:testnet',
+    displayName:     IS_MAINNET ? 'Algorand Mainnet'                     : 'Algorand Testnet',
     ticker: 'ALGO',
     tickerName: 'Algorand',
-    rpcTarget: 'https://testnet-api.algonode.cloud',
+    rpcTarget:       IS_MAINNET ? 'https://mainnet-api.algonode.cloud'   : 'https://testnet-api.algonode.cloud',
     logo: '',
-    blockExplorerUrl: 'https://lora.algokit.io/testnet',
+    blockExplorerUrl: IS_MAINNET ? 'https://lora.algokit.io/mainnet'    : 'https://lora.algokit.io/testnet',
   };
   const privateKeyProvider = new CommonPrivateKeyProvider({
     config: { chain: chainConfig, chains: [chainConfig] },
@@ -80,7 +83,7 @@ function buildWeb3Auth(includeStoredSession = true) {
   return new Web3Auth(
     {
       clientId: import.meta.env.VITE_WEB3AUTH_CLIENT_ID as string,
-      web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
+      web3AuthNetwork: IS_MAINNET ? WEB3AUTH_NETWORK.SAPPHIRE_MAINNET : WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
       privateKeyProvider,
       chains: [chainConfig],
     },
@@ -91,7 +94,7 @@ function buildWeb3Auth(includeStoredSession = true) {
       ...storedState,
       // Always force Algorand — prevents null wsEmbedInstance crash when the project
       // config adds EVM chains and EIP155 becomes chains[0].
-      currentChainId: 'algorand:testnet',
+      currentChainId: IS_MAINNET ? 'algorand:mainnet' : 'algorand:testnet',
     },
   );
 }

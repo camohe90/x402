@@ -12,7 +12,7 @@
 import { useState, useCallback } from 'react';
 import { wrapFetchWithPayment, x402Client } from '@x402/fetch';
 import { ExactAvmScheme } from '@x402/avm/exact/client';
-import { toClientAvmSigner, ALGORAND_TESTNET_CAIP2 } from '@x402/avm';
+import { toClientAvmSigner, ALGORAND_TESTNET_CAIP2, ALGORAND_MAINNET_CAIP2 } from '@x402/avm';
 import type { AlgorandAccount } from './useWeb3Auth';
 
 // ── CHANGE 1 — Response types ─────────────────────────────────────────────────
@@ -86,7 +86,9 @@ export interface BuyEvent {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const SELLER_URL = (import.meta.env.VITE_SELLER_URL as string) ?? 'http://localhost:4021';
+const SELLER_URL   = (import.meta.env.VITE_SELLER_URL as string) ?? 'http://localhost:4021';
+const IS_MAINNET   = import.meta.env.VITE_NETWORK === 'mainnet';
+const NETWORK_CAIP2 = IS_MAINNET ? ALGORAND_MAINNET_CAIP2 : ALGORAND_TESTNET_CAIP2;
 const PURCHASES_KEY = 'x402-purchases';
 
 function loadPurchases(): Purchase[] {
@@ -170,7 +172,7 @@ export function useBuyer() {
     setLastEndpoint(null);
 
     const signer = toClientAvmSigner(account.privateKeyBase64);
-    const client = new x402Client().register(ALGORAND_TESTNET_CAIP2, new ExactAvmScheme(signer));
+    const client = new x402Client().register(NETWORK_CAIP2, new ExactAvmScheme(signer));
 
     const MAX_RETRIES = 1;
     let retryCount = 0;
