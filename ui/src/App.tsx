@@ -164,13 +164,29 @@ function InitSkeleton() {
   );
 }
 
-function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, balance }: {
+function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, balance, getMnemonic }: {
   status: string; onConnect: () => void; onDisconnect: () => void;
   address?: string; walletHint?: string; balance?: WalletBalance | null;
+  getMnemonic?: () => Promise<string | null>;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Mnemonic state — all cleared when dropdown closes, never persisted anywhere
+  const [mnemonic, setMnemonic]               = useState<string | null>(null);
+  const [mnemonicRevealed, setMnemonicRevealed] = useState(false);
+  const [loadingMnemonic, setLoadingMnemonic]   = useState(false);
+  const [copiedMnemonic, setCopiedMnemonic]     = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      // Wipe from memory the moment the dropdown closes
+      setMnemonic(null);
+      setMnemonicRevealed(false);
+      setCopiedMnemonic(false);
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -180,6 +196,22 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
+
+  const loadMnemonic = async () => {
+    if (!getMnemonic || loadingMnemonic) return;
+    setLoadingMnemonic(true);
+    const m = await getMnemonic();
+    setMnemonic(m);
+    setLoadingMnemonic(false);
+  };
+
+  const copyMnemonic = () => {
+    if (!mnemonic) return;
+    navigator.clipboard.writeText(mnemonic).then(() => {
+      setCopiedMnemonic(true);
+      setTimeout(() => setCopiedMnemonic(false), 2000);
+    });
+  };
 
   const copyAddress = () => {
     if (!address) return;
@@ -246,6 +278,75 @@ function ConnectButton({ status, onConnect, onDisconnect, address, walletHint, b
                 </div>
               )}
             </div>
+            {/* Recovery phrase — tap-to-reveal, cleared on close */}
+            <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: mnemonic ? 10 : 0 }}>
+                <div>
+                  <div style={{ fontSize:10, fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>Recovery Phrase</div>
+                  {!mnemonic && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>25-word Algorand mnemonic</div>}
+                </div>
+                {!mnemonic ? (
+                  <button
+                    onClick={loadMnemonic}
+                    disabled={loadingMnemonic}
+                    style={{ padding:'4px 10px', fontSize:11, borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor: loadingMnemonic ? 'wait' : 'pointer', whiteSpace:'nowrap', opacity: loadingMnemonic ? 0.6 : 1 }}>
+                    {loadingMnemonic ? 'Loading…' : 'Show'}
+                  </button>
+                ) : (
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button
+                      onClick={copyMnemonic}
+                      style={{ padding:'4px 10px', fontSize:11, borderRadius:6, border:'1px solid var(--border)', background:'transparent', color: copiedMnemonic ? 'var(--success)' : 'var(--text-muted)', cursor:'pointer', transition:'color 0.2s' }}>
+                      {copiedMnemonic ? '✓ Copied' : 'Copy'}
+                    </button>
+                    <button
+                      onClick={() => { setMnemonic(null); setMnemonicRevealed(false); }}
+                      style={{ padding:'4px 10px', fontSize:11, borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor:'pointer' }}>
+                      Hide
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {mnemonic && (() => {
+                const words = mnemonic.split(' ');
+                return (
+                  <>
+                    {/* Warning banner */}
+                    <div style={{ marginBottom:8, padding:'7px 10px', background:'rgba(239,68,68,0.08)', border:'1px solid #ef444433', borderRadius:7, fontSize:11, color:'var(--error)', lineHeight:1.6 }}>
+                      Anyone with these words controls this wallet. Never share them.
+                    </div>
+
+                    {/* Word grid — blurred until tapped */}
+                    <div
+                      style={{ position:'relative', cursor: mnemonicRevealed ? 'default' : 'pointer' }}
+                      onClick={() => { if (!mnemonicRevealed) setMnemonicRevealed(true); }}>
+                      <div style={{
+                        display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:4,
+                        filter: mnemonicRevealed ? 'none' : 'blur(5px)',
+                        userSelect: mnemonicRevealed ? 'text' : 'none',
+                        transition:'filter 0.25s ease',
+                      }}>
+                        {words.map((word, i) => (
+                          <div key={i} style={{ padding:'4px 6px', background:'var(--bg)', borderRadius:5, fontSize:11, fontFamily:'var(--mono)' }}>
+                            <span style={{ color:'var(--text-muted)', fontSize:10, marginRight:3 }}>{i + 1}.</span>
+                            <span style={{ color:'var(--text)', fontWeight:600 }}>{word}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {!mnemonicRevealed && (
+                        <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
+                          <span style={{ fontSize:12, fontWeight:600, color:'var(--text)', background:'var(--card)', padding:'6px 14px', borderRadius:8, border:'1px solid var(--border)', boxShadow:'0 2px 8px rgba(0,0,0,0.3)' }}>
+                            Tap to reveal
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
             <div style={{ padding:'10px 16px' }}>
               <button onClick={() => { setOpen(false); onDisconnect(); }} style={{ width:'100%', padding:'8px', fontSize:13, borderRadius:8, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', cursor:'pointer' }}>Disconnect</button>
             </div>
@@ -995,7 +1096,7 @@ const data = await response.json();
 // ── Main App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const { status: authStatus, isConnected, error: authError, connect, disconnect, getAccount } = useWeb3Auth();
+  const { status: authStatus, isConnected, error: authError, connect, disconnect, getAccount, getMnemonic } = useWeb3Auth();
   const { events, purchases, result, lastEndpoint, loading, error: buyError, buy } = useBuyer();
   const [address, setAddress]       = useState<string | null>(null);
   const [balance, setBalance]       = useState<WalletBalance | null>(null);
@@ -1138,7 +1239,7 @@ export default function App() {
             style={{ padding:'6px 10px', fontSize:14, borderRadius:20, border:'1px solid var(--border)', background:'var(--card)', color:'var(--text-dim)', cursor:'pointer', lineHeight:1 }}>
             {theme === 'dark' ? '☀️' : '🌙'}
           </button>
-          <ConnectButton status={authStatus} onConnect={connect} onDisconnect={disconnect} address={address ?? undefined} walletHint={walletHint} balance={balance} />
+          <ConnectButton status={authStatus} onConnect={connect} onDisconnect={disconnect} address={address ?? undefined} walletHint={walletHint} balance={balance} getMnemonic={getMnemonic} />
         </div>
       </nav>
 

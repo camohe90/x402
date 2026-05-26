@@ -206,12 +206,27 @@ export function useWeb3Auth() {
     }
   }, [provider]);
 
+  // Derives the standard 25-word Algorand mnemonic from the Web3Auth key.
+  // Pure in-browser computation — no network call, nothing persisted.
+  const getMnemonic = useCallback(async (): Promise<string | null> => {
+    if (!provider) return null;
+    try {
+      const privateKeyHex = await provider.request({ method: 'private_key' }) as string;
+      const seed = new Uint8Array(Buffer.from(privateKeyHex, 'hex')).subarray(0, 32);
+      const { secretKey } = nacl.sign.keyPair.fromSeed(seed);
+      return algosdk.secretKeyToMnemonic(secretKey);
+    } catch {
+      return null;
+    }
+  }, [provider]);
+
   return {
     status,
     isConnected: status === 'connected',
     provider,
     error,
     getAccount,
+    getMnemonic,
     connect,
     disconnect,
   };
